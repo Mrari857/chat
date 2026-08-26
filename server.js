@@ -1,15 +1,30 @@
 const http = require("http");
 const fs = require("fs");
+const path = require("path");
 const WebSocket = require("ws");
+const crypto = require("crypto");
 
 const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
-    if (req.url === "/") {
-        res.writeHead(200, {
-            "Content-Type": "text/html; charset=utf-8"
-        });
-        res.end(fs.readFileSync("chat.html"));
+    if (req.url === "/" || req.url === "/chat.html") {
+        try {
+            const file = fs.readFileSync(
+                path.join(__dirname, "chat.html")
+            );
+
+            res.writeHead(200, {
+                "Content-Type": "text/html; charset=utf-8",
+                "Cache-Control": "no-store"
+            });
+
+            res.end(file);
+        } catch (err) {
+            console.error(err);
+            res.writeHead(500);
+            res.end("Server error");
+        }
+
         return;
     }
 
@@ -19,88 +34,209 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-function send(socket, data) {
-    if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify(data));
+const users = new Map();
+
+function send(ws, data) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
     }
 }
 
-wss.on("connection", (socket) => {
-    socket.username = "Anonymous";
+function broadcast(data, except = null) {
+    for (const client of wss.clients) {
+        if (client !== except) {
+            send(client, data);
+        }
+    }
+}
 
-    console.log("Someone connected!");
+function makeUser(ws) {
+    return {
+        id: ws.userId,
+        username: ws.username
+    };
+}
 
-    socket.on("message", (data) => {
+function sendUserList() {
+    const list = [];
+
+    for (const ws of wss.clients) {
+        if (ws.userId) {
+            list.push(makeUser(ws));
+        }
+    }
+
+    for (const ws of wss.clients) {
+        send(ws, {
+            type: "user-list",
+            users: list
+        });
+    }
+}
+
+function findUser(id) {
+    return users.get(String(id));
+}
+
+wss.on("connection", (ws) => {
+    ws.userId = crypto.randomUUID();
+    ws.username = "Anonymous";
+
+    users.set(ws.userId, ws);
+
+    send(ws, {
+        type: "your-id",
+        id: ws.userId
+    });
+
+    sendUserList();
+
+    console.log(`${ws.username} ${ws.userId} connected`);
+
+    ws.on("message", (raw) => {
+        let message;
+
         try {
-            const message = JSON.parse(data.toString());
-
-            // Username
-            if (message.type === "username") {
-                socket.username = message.username || "Anonymous";
-                return;
-            }
-
-            // Public text
-            if (message.type === "public") {
-                const msg = {
-                    type: "public",
-                    from: socket.username,
-                    text: String(message.text || "")
-                };
-
-                for (const client of wss.clients) {
-                    send(client, msg);
-                }
-
-                return;
-            }
-
-            // Private text
-            if (message.type === "private") {
-                const msg = {
-                    type: "private",
-                    from: socket.username,
-                    to: String(message.to || ""),
-                    text: String(message.text || "")
-                };
-
-                for (const client of wss.clients) {
-                    if (
-                        client === socket ||
-                        client.username === msg.to
-                    ) {
-                        send(client, msg);
-                    }
-                }
-
-                return;
-            }
-
-            // WebRTC signaling
-            if (
-                message.type === "voice-offer" ||
-                message.type === "voice-answer" ||
-                message.type === "voice-ice"
-            ) {
-                for (const client of wss.clients) {
-                    if (client !== socket) {
-                        send(client, {
-                            ...message,
-                            from: socket.username
-                        });
-                    }
-                }
-
-                return;
-            }
-
+            message = JSON.parse(raw.toString());
         } catch {
-            console.log("Invalid message received.");
+            return;
+        }
+
+        /*
+         * USERNAME
+         */
+
+        if (message.type === "username") {
+            let name = String(
+                message.username || "Anonymous"
+            )
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 30);
+
+            if (!name) {
+                name = "Anonymous";
+            }
+
+            ws.username = name;
+
+            sendUserList();
+            return;
+        }
+
+        /*
+         * PUBLIC CHAT
+         */
+
+        if (message.type === "public") {
+            const text = String(
+                message.text || ""
+            )
+                .trim()
+                .slice(0, 2000);
+
+            if (!text) return;
+
+            broadcast({
+                type: "public",
+                from: ws.username,
+                fromId: ws.userId,
+                text,
+                time: Date.now()
+            });
+
+            return;
+        }
+
+        /*
+         * PRIVATE CHAT
+         */
+
+        if (message.type === "private") {
+            const text = String(
+                message.text || ""
+            )
+                .trim()
+                .slice(0, 2000);
+
+            const targetId = String(
+                message.to || ""
+            );
+
+            if (!text || !targetId) return;
+
+            const target = findUser(targetId);
+
+            if (!target) return;
+
+            const data = {
+                type: "private",
+                from: ws.username,
+                fromId: ws.userId,
+                to: target.username,
+                toId: target.userId,
+                text,
+                time: Date.now()
+            };
+
+            send(ws, data);
+            send(target, data);
+
+            return;
+        }
+
+        /*
+         * VOICE SIGNALING
+         *
+         * voice-offer
+         * voice-answer
+         * voice-ice
+         * voice-hangup
+         */
+
+        const voiceTypes = [
+            "voice-offer",
+            "voice-answer",
+            "voice-ice",
+            "voice-hangup"
+        ];
+
+        if (voiceTypes.includes(message.type)) {
+            const targetId = String(
+                message.to || ""
+            );
+
+            const target = findUser(targetId);
+
+            if (!target) return;
+
+            const packet = {
+                ...message,
+                from: ws.userId,
+                fromUsername: ws.username
+            };
+
+            send(target, packet);
+
+            return;
         }
     });
 
-    socket.on("close", () => {
-        console.log(`${socket.username} disconnected.`);
+    ws.on("close", () => {
+        users.delete(ws.userId);
+
+        broadcast({
+            type: "user-left",
+            id: ws.userId
+        });
+
+        sendUserList();
+
+        console.log(`${ws.username} disconnected`);
+    });
+
+    ws.on("error", (err) => {
+        console.error("WebSocket error:", err.message);
     });
 });
 

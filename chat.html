@@ -1,346 +1,1709 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chat</title>
+<meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+>
+
+<title>ChatShine</title>
+
 <style>
-body{font-family:Arial;max-width:800px;margin:20px auto;padding:15px}
-#messages{height:400px;overflow:auto;border:1px solid #ccc;padding:10px}
-.msg{padding:7px;margin:5px 0;background:#f1f1f1;border-radius:6px}
-.private{background:#fff3cd}
-.msg button{margin-left:8px}
-input,button{padding:9px}
-#message{width:60%}
-#privateBar{display:none;background:#fff3cd;padding:8px;margin:5px 0}
+* {
+    box-sizing: border-box;
+}
+
+:root {
+    --bg: #0b0d12;
+    --panel: #12151d;
+    --panel2: #181c26;
+    --border: #272c38;
+    --text: #f4f6fb;
+    --muted: #8d95a7;
+    --accent: #7c5cff;
+    --accent2: #6245e8;
+    --green: #35d07f;
+    --red: #ff5364;
+    --yellow: #ffd166;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+        radial-gradient(
+            circle at top left,
+            #211a46 0,
+            transparent 35%
+        ),
+        var(--bg);
+    color: var(--text);
+    font-family:
+        Inter,
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+button,
+input {
+    font: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+.app {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 250px 1fr 280px;
+}
+
+/* SIDEBAR */
+
+.sidebar {
+    background: rgba(12,14,20,.94);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+}
+
+.logo {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 28px;
+}
+
+.logo span {
+    color: var(--accent);
+}
+
+.section-title {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+    margin: 18px 5px 8px;
+}
+
+.channel {
+    padding: 11px 12px;
+    border-radius: 9px;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.channel.active {
+    color: white;
+    background: rgba(124,92,255,.17);
+}
+
+.me {
+    position: absolute;
+    bottom: 18px;
+    left: 18px;
+    right: 18px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+}
+
+.me-name {
+    font-weight: 700;
+}
+
+.me-status {
+    color: var(--green);
+    font-size: 12px;
+    margin-top: 3px;
+}
+
+/* MAIN */
+
+.main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.topbar {
+    height: 68px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+    background: rgba(12,14,20,.65);
+    backdrop-filter: blur(15px);
+}
+
+.room-title {
+    font-weight: 800;
+}
+
+.connection {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 22px;
+}
+
+.welcome {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+}
+
+.welcome h2 {
+    color: white;
+}
+
+.msg {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.avatar {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(
+        135deg,
+        var(--accent),
+        #a78bfa
+    );
+    font-weight: 800;
+}
+
+.msg-body {
+    min-width: 0;
+}
+
+.msg-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.msg-name {
+    font-weight: 800;
+}
+
+.msg-time {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.msg-text {
+    margin-top: 3px;
+    color: #d8dce6;
+    word-break: break-word;
+}
+
+.msg.private .msg-text {
+    color: #ffe39b;
+}
+
+.reply {
+    opacity: 0;
+    margin-left: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.msg:hover .reply {
+    opacity: 1;
+}
+
+.composer-wrap {
+    padding: 15px 20px 20px;
+}
+
+.private-bar {
+    display: none;
+    padding: 9px 12px;
+    margin-bottom: 8px;
+    background: rgba(255,209,102,.1);
+    border: 1px solid rgba(255,209,102,.25);
+    border-radius: 9px;
+    color: var(--yellow);
+}
+
+.composer {
+    display: flex;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    padding: 7px;
+}
+
+.composer input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: white;
+    padding: 10px;
+}
+
+.send {
+    border: 0;
+    border-radius: 9px;
+    padding: 0 18px;
+    color: white;
+    background: var(--accent);
+    font-weight: 700;
+}
+
+.send:hover {
+    background: var(--accent2);
+}
+
+/* RIGHT PANEL */
+
+.people {
+    border-left: 1px solid var(--border);
+    background: rgba(12,14,20,.7);
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.people h3 {
+    margin-top: 0;
+}
+
+.user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 5px;
+}
+
+.user:hover {
+    background: var(--panel2);
+}
+
+.user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #272d3a;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.user-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.user-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-state {
+    color: var(--green);
+    font-size: 11px;
+}
+
+/* SET USERNAME */
+
+.login {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background: rgba(5,6,10,.88);
+    backdrop-filter: blur(12px);
+}
+
+.login-card {
+    width: min(420px, calc(100% - 30px));
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 30px;
+    box-shadow: 0 25px 80px rgba(0,0,0,.45);
+}
+
+.login-card h1 {
+    margin-top: 0;
+}
+
+.login-card p {
+    color: var(--muted);
+}
+
+.login-card input {
+    width: 100%;
+    padding: 13px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    outline: none;
+    background: var(--panel2);
+    color: white;
+    margin: 12px 0;
+}
+
+.login-card button {
+    width: 100%;
+    border: 0;
+    padding: 13px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: white;
+    font-weight: 800;
+}
+
+/* VOICE */
+
+.voice-panel {
+    position: fixed;
+    left: 50%;
+    bottom: 25px;
+    transform: translateX(-50%);
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    background: rgba(18,21,29,.96);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 15px 50px rgba(0,0,0,.45);
+    z-index: 50;
+}
+
+.voice-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+}
+
+.voice-name {
+    font-weight: 700;
+}
+
+.voice-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.voice-buttons button {
+    border: 0;
+    border-radius: 9px;
+    padding: 9px 12px;
+    background: var(--panel2);
+    color: white;
+}
+
+.voice-buttons .hangup {
+    background: var(--red);
+}
+
+/* CALL */
+
+.call-popup {
+    position: fixed;
+    right: 25px;
+    bottom: 25px;
+    width: 310px;
+    display: none;
+    z-index: 200;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 20px 70px rgba(0,0,0,.55);
+}
+
+.call-popup p {
+    color: var(--muted);
+}
+
+.call-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.call-actions button {
+    flex: 1;
+    border: 0;
+    border-radius: 9px;
+    padding: 11px;
+    color: white;
+}
+
+.accept {
+    background: var(--green);
+}
+
+.decline {
+    background: var(--red);
+}
+
+/* MOBILE */
+
+@media(max-width:900px) {
+    .app {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar,
+    .people {
+        display: none;
+    }
+
+    .messages {
+        padding: 15px;
+    }
+
+    .topbar {
+        padding: 0 15px;
+    }
+
+    .voice-panel {
+        left: 15px;
+        right: 15px;
+        bottom: 15px;
+        transform: none;
+        justify-content: space-between;
+    }
+}
 </style>
 </head>
+
 <body>
 
-<h1>Chat</h1>
+<!-- LOGIN -->
 
-<input id="username" placeholder="Username">
-<button onclick="setUsername()">Set</button>
+<div class="login" id="login">
+    <div class="login-card">
+        <h1>✨ Welcome to ChatShine</h1>
+        <p>
+            Pick a username and jump into the conversation.
+        </p>
 
-<p id="status">Connecting...</p>
+        <input
+            id="username"
+            maxlength="30"
+            placeholder="Username"
+            autocomplete="off"
+        >
 
-<div id="messages"></div>
-
-<div id="privateBar">
-🔒 Private to <b id="privateName"></b>
-<button onclick="makePublic()">Public</button>
+        <button onclick="setUsername()">
+            Enter Chat
+        </button>
+    </div>
 </div>
 
-<input id="message" placeholder="Message..." onkeydown="enterSend(event)">
-<button onclick="sendMessage()">Send</button>
+<div class="app">
 
-<br><br>
+    <!-- LEFT -->
 
-<button id="voice" onclick="toggleVoice()">🎙️ Join Voice</button>
-<span id="voiceStatus">Voice off</span>
+    <aside class="sidebar">
+
+        <div class="logo">
+            Chat<span>Shine</span>
+        </div>
+
+        <div class="section-title">
+            Channels
+        </div>
+
+        <div class="channel active">
+            💬 General
+        </div>
+
+        <div class="channel">
+            🎙️ Voice
+        </div>
+
+        <div class="me">
+            <div class="me-name" id="myName">
+                Anonymous
+            </div>
+
+            <div class="me-status">
+                ● Online
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- CENTER -->
+
+    <main class="main">
+
+        <header class="topbar">
+            <div class="room-title">
+                💬 General
+            </div>
+
+            <div class="connection" id="status">
+                Connecting...
+            </div>
+        </header>
+
+        <section
+            class="messages"
+            id="messages"
+        >
+
+            <div class="welcome" id="welcome">
+                <h2>Welcome to General 👋</h2>
+                <p>
+                    Send a message or select someone
+                    to start a private conversation.
+                </p>
+            </div>
+
+        </section>
+
+        <div class="composer-wrap">
+
+            <div
+                class="private-bar"
+                id="privateBar"
+            >
+                🔒 Private message to
+                <b id="privateName"></b>
+
+                <button
+                    onclick="makePublic()"
+                    style="
+                        margin-left:8px;
+                        border:0;
+                        border-radius:6px;
+                        padding:5px 8px;
+                    "
+                >
+                    Public
+                </button>
+            </div>
+
+            <div class="composer">
+
+                <input
+                    id="message"
+                    placeholder="Message #general"
+                    autocomplete="off"
+                    onkeydown="enterSend(event)"
+                >
+
+                <button
+                    class="send"
+                    onclick="sendMessage()"
+                >
+                    Send
+                </button>
+
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- RIGHT -->
+
+    <aside class="people">
+
+        <h3>Online</h3>
+
+        <div id="users"></div>
+
+    </aside>
+
+</div>
+
+<!-- VOICE -->
+
+<div
+    class="voice-panel"
+    id="voicePanel"
+>
+
+    <div class="voice-dot"></div>
+
+    <div>
+        <div class="voice-name" id="voiceName">
+            Voice
+        </div>
+
+        <div
+            id="voiceStatus"
+            style="
+                color:var(--muted);
+                font-size:11px;
+            "
+        >
+            Connected
+        </div>
+    </div>
+
+    <div class="voice-buttons">
+
+        <button onclick="toggleMute()">
+            🎙️ <span id="muteText">Mute</span>
+        </button>
+
+        <button
+            class="hangup"
+            onclick="hangup()"
+        >
+            📞
+        </button>
+
+    </div>
+
+</div>
+
+<!-- INCOMING CALL -->
+
+<div
+    class="call-popup"
+    id="callPopup"
+>
+
+    <h3>📞 Incoming Voice Call</h3>
+
+    <p>
+        <b id="callerName">Someone</b>
+        is calling you.
+    </p>
+
+    <div class="call-actions">
+
+        <button
+            class="accept"
+            onclick="acceptCall()"
+        >
+            Accept
+        </button>
+
+        <button
+            class="decline"
+            onclick="declineCall()"
+        >
+            Decline
+        </button>
+
+    </div>
+
+</div>
 
 <div id="audio"></div>
 
 <script>
-const ws=new WebSocket(
-(location.protocol==="https:"?"wss://":"ws://")+location.host
+
+const ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://")
+    + location.host
 );
 
-let myId=null;
-let username="Anonymous";
-let privateTo=null;
-let stream=null;
-let voiceOn=false;
+let myId = null;
+let username = "Anonymous";
 
-const users=new Map();
-const peers=new Map();
-const iceQueue=new Map();
+let privateTo = null;
 
-const rtcConfig={
-iceServers:[{urls:"stun:stun.l.google.com:19302"}]
+let stream = null;
+let voiceMuted = false;
+
+let activeCall = null;
+let incomingCall = null;
+
+const users = new Map();
+const peers = new Map();
+const iceQueue = new Map();
+
+const rtcConfig = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        },
+        {
+            urls: "stun:stun1.l.google.com:19302"
+        }
+    ]
 };
 
-const status=document.getElementById("status");
-const messages=document.getElementById("messages");
-const message=document.getElementById("message");
-const voiceButton=document.getElementById("voice");
-const voiceStatus=document.getElementById("voiceStatus");
+const status = document.getElementById("status");
+const messages = document.getElementById("messages");
+const message = document.getElementById("message");
 
-ws.onopen=()=>{
-status.textContent="Connected";
-sendUsername();
+ws.onopen = () => {
+    status.textContent = "Connected";
 };
 
-ws.onclose=()=>{
-status.textContent="Disconnected";
+ws.onclose = () => {
+    status.textContent = "Disconnected";
 };
 
-ws.onmessage=async e=>{
-const d=JSON.parse(e.data);
-
-if(d.type==="your-id"){
-myId=d.id;
-return;
-}
-
-if(d.type==="user-list"){
-users.clear();
-d.users.forEach(u=>users.set(u.id,u));
-return;
-}
-
-if(d.type==="public"){
-showMessage(d.from,d.text,false);
-return;
-}
-
-if(d.type==="private"){
-showMessage(d.from,d.text,true,d.to);
-return;
-}
-
-if(d.type==="user-left"){
-removePeer(d.id);
-return;
-}
-
-if(d.type==="voice-offer"){
-await receiveOffer(d);
-return;
-}
-
-if(d.type==="voice-answer"){
-const p=peers.get(d.from);
-if(!p)return;
-await p.setRemoteDescription(d.answer);
-await flushIce(d.from);
-return;
-}
-
-if(d.type==="voice-ice"){
-const p=peers.get(d.from);
-
-if(!p||!p.remoteDescription){
-if(!iceQueue.has(d.from))iceQueue.set(d.from,[]);
-iceQueue.get(d.from).push(d.candidate);
-}else{
-try{await p.addIceCandidate(d.candidate)}catch(e){}
-}
-}
+ws.onerror = () => {
+    status.textContent = "Connection error";
 };
 
-function sendUsername(){
-ws.send(JSON.stringify({
-type:"username",
-username
-}));
-}
+ws.onmessage = async (event) => {
 
-function setUsername(){
-const n=document.getElementById("username").value.trim();
-if(n)username=n;
-sendUsername();
-status.textContent="Connected as "+username;
-}
+    let d;
 
-function sendMessage(){
-const text=message.value.trim();
-if(!text)return;
+    try {
+        d = JSON.parse(event.data);
+    } catch {
+        return;
+    }
 
-ws.send(JSON.stringify(
-privateTo
-?{type:"private",to:privateTo,text}
-:{type:"public",text}
-));
+    if (d.type === "your-id") {
+        myId = d.id;
+        sendUsername();
+        return;
+    }
 
-message.value="";
-}
+    if (d.type === "user-list") {
+        users.clear();
 
-function enterSend(e){
-if(e.key==="Enter"){
-e.preventDefault();
-sendMessage();
-}
-}
+        d.users.forEach(user => {
+            users.set(user.id, user);
+        });
 
-function showMessage(from,text,isPrivate,to){
-const div=document.createElement("div");
-div.className="msg"+(isPrivate?" private":"");
+        renderUsers();
+        return;
+    }
 
-const span=document.createElement("span");
-span.textContent=isPrivate
-?`🔒 ${from} → ${to}: ${text}`
-:`${from}: ${text}`;
+    if (d.type === "public") {
+        showMessage(
+            d.from,
+            d.fromId,
+            d.text,
+            false,
+            d.time
+        );
 
-const button=document.createElement("button");
-button.textContent="Reply";
+        return;
+    }
 
-button.onclick=()=>{
-privateTo=from;
-document.getElementById("privateName").textContent=from;
-document.getElementById("privateBar").style.display="block";
-message.placeholder="Private message...";
-message.focus();
+    if (d.type === "private") {
+        showMessage(
+            d.from,
+            d.fromId,
+            d.text,
+            true,
+            d.time
+        );
+
+        return;
+    }
+
+    if (d.type === "user-left") {
+        removePeer(d.id);
+        return;
+    }
+
+    if (d.type === "voice-offer") {
+        await receiveOffer(d);
+        return;
+    }
+
+    if (d.type === "voice-answer") {
+        await receiveAnswer(d);
+        return;
+    }
+
+    if (d.type === "voice-ice") {
+        await receiveIce(d);
+        return;
+    }
+
+    if (d.type === "voice-hangup") {
+        if (d.from === activeCall) {
+            cleanupVoice(false);
+        }
+
+        return;
+    }
 };
 
-div.append(span,button);
-messages.appendChild(div);
-messages.scrollTop=messages.scrollHeight;
+/* USERNAME */
+
+function sendUsername() {
+
+    if (ws.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    ws.send(JSON.stringify({
+        type: "username",
+        username
+    }));
 }
 
-function makePublic(){
-privateTo=null;
-document.getElementById("privateBar").style.display="none";
-message.placeholder="Message...";
-message.focus();
+function setUsername() {
+
+    const input =
+        document.getElementById("username");
+
+    const name =
+        input.value.trim();
+
+    if (!name) {
+        input.focus();
+        return;
+    }
+
+    username = name.slice(0, 30);
+
+    sendUsername();
+
+    document.getElementById("myName")
+        .textContent = username;
+
+    document.getElementById("login")
+        .style.display = "none";
+
+    status.textContent =
+        "Connected as " + username;
 }
 
-async function toggleVoice(){
-if(voiceOn){
-stopVoice();
-}else{
-await startVoice();
-}
-}
+document
+    .getElementById("username")
+    .addEventListener("keydown", e => {
 
-async function startVoice(){
-try{
-stream=await navigator.mediaDevices.getUserMedia({audio:true});
+        if (e.key === "Enter") {
+            setUsername();
+        }
 
-voiceOn=true;
-voiceButton.textContent="🔴 Leave Voice";
-voiceStatus.textContent="Microphone ON";
+    });
 
-for(const [id] of users){
-if(id!==myId && myId<id){
-await makeOffer(id);
-}
-}
-}catch(e){
-alert("Could not access microphone.");
-}
-}
+/* USERS */
 
-function createPeer(id){
-if(peers.has(id))return peers.get(id);
+function renderUsers() {
 
-const p=new RTCPeerConnection(rtcConfig);
-peers.set(id,p);
+    const container =
+        document.getElementById("users");
 
-if(stream){
-stream.getTracks().forEach(t=>p.addTrack(t,stream));
-}
+    container.innerHTML = "";
 
-p.ontrack=e=>{
-let audio=document.getElementById("audio-"+id);
+    for (const user of users.values()) {
 
-if(!audio){
-audio=document.createElement("audio");
-audio.id="audio-"+id;
-audio.autoplay=true;
-audio.playsInline=true;
-document.getElementById("audio").appendChild(audio);
-}
+        if (user.id === myId) {
+            continue;
+        }
 
-audio.srcObject=e.streams[0];
-audio.play().catch(()=>{});
-};
+        const row =
+            document.createElement("div");
 
-p.onicecandidate=e=>{
-if(e.candidate){
-ws.send(JSON.stringify({
-type:"voice-ice",
-to:id,
-candidate:e.candidate
-}));
-}
-};
+        row.className = "user";
 
-return p;
-}
+        const avatar =
+            document.createElement("div");
 
-async function makeOffer(id){
-const p=createPeer(id);
+        avatar.className =
+            "user-avatar";
 
-const offer=await p.createOffer();
-await p.setLocalDescription(offer);
+        avatar.textContent =
+            user.username
+                .charAt(0)
+                .toUpperCase();
 
-ws.send(JSON.stringify({
-type:"voice-offer",
-to:id,
-offer:p.localDescription
-}));
-}
+        const info =
+            document.createElement("div");
 
-async function receiveOffer(d){
-if(!stream){
-try{
-stream=await navigator.mediaDevices.getUserMedia({audio:true});
-voiceOn=true;
-voiceButton.textContent="🔴 Leave Voice";
-voiceStatus.textContent="Microphone ON";
-}catch(e){
-return;
-}
-}
+        info.className = "user-info";
 
-const p=createPeer(d.from);
+        const name =
+            document.createElement("div");
 
-await p.setRemoteDescription(d.offer);
-await flushIce(d.from);
+        name.className = "user-name";
 
-const answer=await p.createAnswer();
-await p.setLocalDescription(answer);
+        name.textContent =
+            user.username;
 
-ws.send(JSON.stringify({
-type:"voice-answer",
-to:d.from,
-answer:p.localDescription
-}));
+        const state =
+            document.createElement("div");
+
+        state.className = "user-state";
+
+        state.textContent =
+            "● Online";
+
+        info.append(name, state);
+
+        row.append(avatar, info);
+
+        row.onclick = () => {
+
+            privateTo = user.id;
+
+            document
+                .getElementById("privateName")
+                .textContent = user.username;
+
+            document
+                .getElementById("privateBar")
+                .style.display = "block";
+
+            message.placeholder =
+                "Private message to "
+                + user.username;
+
+            message.focus();
+        };
+
+        /*
+         * Double click user = voice call
+         */
+
+        row.ondblclick = () => {
+            startVoice(user.id);
+        };
+
+        container.appendChild(row);
+    }
 }
 
-async function flushIce(id){
-const p=peers.get(id);
-const q=iceQueue.get(id);
+/* CHAT */
 
-if(!p||!q)return;
+function sendMessage() {
 
-for(const c of q){
-try{await p.addIceCandidate(c)}catch(e){}
+    const text =
+        message.value.trim();
+
+    if (!text) return;
+
+    if (ws.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    if (privateTo) {
+
+        ws.send(JSON.stringify({
+            type: "private",
+            to: privateTo,
+            text
+        }));
+
+    } else {
+
+        ws.send(JSON.stringify({
+            type: "public",
+            text
+        }));
+
+    }
+
+    message.value = "";
 }
 
-iceQueue.delete(id);
+function enterSend(e) {
+
+    if (e.key === "Enter") {
+        e.preventDefault();
+        sendMessage();
+    }
 }
 
-function removePeer(id){
-const p=peers.get(id);
-if(p)p.close();
+function showMessage(
+    from,
+    fromId,
+    text,
+    isPrivate,
+    time
+) {
 
-peers.delete(id);
-iceQueue.delete(id);
+    const welcome =
+        document.getElementById("welcome");
 
-const a=document.getElementById("audio-"+id);
-if(a)a.remove();
+    if (welcome) {
+        welcome.remove();
+    }
+
+    const div =
+        document.createElement("div");
+
+    div.className =
+        "msg" + (isPrivate ? " private" : "");
+
+    const avatar =
+        document.createElement("div");
+
+    avatar.className = "avatar";
+
+    avatar.textContent =
+        from.charAt(0).toUpperCase();
+
+    const body =
+        document.createElement("div");
+
+    body.className = "msg-body";
+
+    const head =
+        document.createElement("div");
+
+    head.className = "msg-head";
+
+    const name =
+        document.createElement("span");
+
+    name.className = "msg-name";
+
+    name.textContent = from;
+
+    const timestamp =
+        document.createElement("span");
+
+    timestamp.className = "msg-time";
+
+    timestamp.textContent =
+        time
+            ? new Date(time).toLocaleTimeString(
+                [],
+                {
+                    hour: "2-digit",
+                    minute: "2-digit"
+                }
+            )
+            : "";
+
+    const reply =
+        document.createElement("button");
+
+    reply.className = "reply";
+
+    reply.textContent =
+        "Reply privately";
+
+    reply.onclick = () => {
+
+        privateTo = fromId;
+
+        document
+            .getElementById("privateName")
+            .textContent = from;
+
+        document
+            .getElementById("privateBar")
+            .style.display = "block";
+
+        message.placeholder =
+            "Private message to " + from;
+
+        message.focus();
+    };
+
+    head.append(
+        name,
+        timestamp,
+        reply
+    );
+
+    const textElement =
+        document.createElement("div");
+
+    textElement.className =
+        "msg-text";
+
+    if (isPrivate) {
+        textElement.textContent =
+            "🔒 " + text;
+    } else {
+        textElement.textContent = text;
+    }
+
+    body.append(head, textElement);
+
+    div.append(avatar, body);
+
+    messages.appendChild(div);
+
+    messages.scrollTop =
+        messages.scrollHeight;
 }
 
-function stopVoice(){
-voiceOn=false;
+function makePublic() {
 
-if(stream){
-stream.getTracks().forEach(t=>t.stop());
-stream=null;
+    privateTo = null;
+
+    document
+        .getElementById("privateBar")
+        .style.display = "none";
+
+    message.placeholder =
+        "Message #general";
+
+    message.focus();
 }
 
-for(const p of peers.values())p.close();
+/* =========================
+   VOICE
+========================= */
 
-peers.clear();
-iceQueue.clear();
+async function startVoice(targetId) {
 
-document.querySelectorAll("#audio audio").forEach(a=>a.remove());
+    if (!targetId) {
+        alert("Double-click a user to call them.");
+        return;
+    }
 
-voiceButton.textContent="🎙️ Join Voice";
-voiceStatus.textContent="Voice off";
+    if (targetId === myId) {
+        return;
+    }
+
+    if (activeCall) {
+        return;
+    }
+
+    try {
+
+        await getMicrophone();
+
+        activeCall = targetId;
+
+        showVoice(
+            getUserName(targetId),
+            "Calling..."
+        );
+
+        const peer =
+            createPeer(targetId);
+
+        const offer =
+            await peer.createOffer({
+                offerToReceiveAudio: true
+            });
+
+        await peer.setLocalDescription(offer);
+
+        ws.send(JSON.stringify({
+            type: "voice-offer",
+            to: targetId,
+            offer: peer.localDescription
+        }));
+
+    } catch (err) {
+
+        console.error(err);
+
+        alert(
+            "Microphone access failed. " +
+            "Check your browser microphone permission."
+        );
+
+        cleanupVoice(false);
+    }
 }
+
+async function getMicrophone() {
+
+    if (stream) {
+        return stream;
+    }
+
+    if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+    ) {
+        throw new Error(
+            "getUserMedia unavailable"
+        );
+    }
+
+    stream =
+        await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            video: false
+        });
+
+    return stream;
+}
+
+function createPeer(id) {
+
+    if (peers.has(id)) {
+        return peers.get(id);
+    }
+
+    const peer =
+        new RTCPeerConnection(rtcConfig);
+
+    peers.set(id, peer);
+
+    if (stream) {
+
+        for (const track of stream.getTracks()) {
+            peer.addTrack(track, stream);
+        }
+
+    }
+
+    peer.onicecandidate = event => {
+
+        if (!event.candidate) {
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            type: "voice-ice",
+            to: id,
+            candidate: event.candidate
+        }));
+    };
+
+    peer.ontrack = event => {
+
+        let audio =
+            document.getElementById(
+                "audio-" + id
+            );
+
+        if (!audio) {
+
+            audio =
+                document.createElement("audio");
+
+            audio.id =
+                "audio-" + id;
+
+            audio.autoplay = true;
+            audio.playsInline = true;
+
+            document
+                .getElementById("audio")
+                .appendChild(audio);
+        }
+
+        audio.srcObject =
+            event.streams[0];
+
+        audio.play().catch(() => {});
+
+        showVoice(
+            getUserName(id),
+            "Voice connected"
+        );
+    };
+
+    peer.onconnectionstatechange = () => {
+
+        const state =
+            peer.connectionState;
+
+        console.log(
+            "Voice connection:",
+            id,
+            state
+        );
+
+        if (
+            state === "connected"
+        ) {
+
+            showVoice(
+                getUserName(id),
+                "Voice connected"
+            );
+
+        }
+
+        if (
+            state === "failed" ||
+            state === "closed"
+        ) {
+
+            if (activeCall === id) {
+                cleanupVoice(false);
+            }
+
+        }
+    };
+
+    peer.oniceconnectionstatechange = () => {
+
+        console.log(
+            "ICE:",
+            peer.iceConnectionState
+        );
+
+        if (
+            peer.iceConnectionState ===
+            "failed"
+        ) {
+
+            /*
+             * Try an ICE restart if possible.
+             */
+
+            peer.restartIce?.();
+
+        }
+    };
+
+    return peer;
+}
+
+async function receiveOffer(d) {
+
+    if (activeCall) {
+        return;
+    }
+
+    incomingCall = d;
+
+    document
+        .getElementById("callerName")
+        .textContent =
+        d.fromUsername || "Someone";
+
+    document
+        .getElementById("callPopup")
+        .style.display = "block";
+}
+
+async function acceptCall() {
+
+    if (!incomingCall) {
+        return;
+    }
+
+    const call =
+        incomingCall;
+
+    incomingCall = null;
+
+    document
+        .getElementById("callPopup")
+        .style.display = "none";
+
+    try {
+
+        await getMicrophone();
+
+        activeCall = call.from;
+
+        showVoice(
+            call.fromUsername,
+            "Connecting..."
+        );
+
+        const peer =
+            createPeer(call.from);
+
+        await peer.setRemoteDescription(
+            call.offer
+        );
+
+        await flushIce(call.from);
+
+        const answer =
+            await peer.createAnswer();
+
+        await peer.setLocalDescription(answer);
+
+        ws.send(JSON.stringify({
+            type: "voice-answer",
+            to: call.from,
+            answer: peer.localDescription
+        }));
+
+    } catch (err) {
+
+        console.error(err);
+
+        alert(
+            "Could not start your microphone."
+        );
+
+        cleanupVoice(false);
+    }
+}
+
+function declineCall() {
+
+    if (!incomingCall) {
+        return;
+    }
+
+    ws.send(JSON.stringify({
+        type: "voice-hangup",
+        to: incomingCall.from
+    }));
+
+    incomingCall = null;
+
+    document
+        .getElementById("callPopup")
+        .style.display = "none";
+}
+
+async function receiveAnswer(d) {
+
+    const peer =
+        peers.get(d.from);
+
+    if (!peer) {
+        return;
+    }
+
+    try {
+
+        await peer.setRemoteDescription(
+            d.answer
+        );
+
+        await flushIce(d.from);
+
+    } catch (err) {
+
+        console.error(
+            "Answer error:",
+            err
+        );
+    }
+}
+
+async function receiveIce(d) {
+
+    const peer =
+        peers.get(d.from);
+
+    if (
+        !peer ||
+        !peer.remoteDescription
+    ) {
+
+        if (
+            !iceQueue.has(d.from)
+        ) {
+            iceQueue.set(
+                d.from,
+                []
+            );
+        }
+
+        iceQueue
+            .get(d.from)
+            .push(d.candidate);
+
+        return;
+    }
+
+    try {
+
+        await peer.addIceCandidate(
+            d.candidate
+        );
+
+    } catch (err) {
+
+        console.error(
+            "ICE candidate error:",
+            err
+        );
+    }
+}
+
+async function flushIce(id) {
+
+    const peer =
+        peers.get(id);
+
+    const queue =
+        iceQueue.get(id);
+
+    if (!peer || !queue) {
+        return;
+    }
+
+    for (const candidate of queue) {
+
+        try {
+
+            await peer.addIceCandidate(
+                candidate
+            );
+
+        } catch (err) {
+
+            console.error(
+                "Queued ICE error:",
+                err
+            );
+        }
+    }
+
+    iceQueue.delete(id);
+}
+
+function toggleMute() {
+
+    if (!stream) {
+        return;
+    }
+
+    voiceMuted = !voiceMuted;
+
+    for (const track of stream.getAudioTracks()) {
+        track.enabled = !voiceMuted;
+    }
+
+    document
+        .getElementById("muteText")
+        .textContent =
+        voiceMuted
+            ? "Unmute"
+            : "Mute";
+
+    document
+        .getElementById("voiceStatus")
+        .textContent =
+        voiceMuted
+            ? "Microphone muted"
+            : "Voice connected";
+}
+
+function hangup() {
+
+    if (activeCall) {
+
+        ws.send(JSON.stringify({
+            type: "voice-hangup",
+            to: activeCall
+        }));
+
+    }
+
+    cleanupVoice(true);
+}
+
+function cleanupVoice(sendHangup) {
+
+    if (
+        sendHangup &&
+        activeCall
+    ) {
+
+        ws.send(JSON.stringify({
+            type: "voice-hangup",
+            to: activeCall
+        }));
+
+    }
+
+    for (const peer of peers.values()) {
+        try {
+            peer.close();
+        } catch {}
+    }
+
+    peers.clear();
+    iceQueue.clear();
+
+    if (stream) {
+
+        for (const track of stream.getTracks()) {
+            track.stop();
+        }
+
+        stream = null;
+    }
+
+    document
+        .querySelectorAll("#audio audio")
+        .forEach(audio => audio.remove());
+
+    activeCall = null;
+    voiceMuted = false;
+
+    document
+        .getElementById("voicePanel")
+        .style.display = "none";
+
+    document
+        .getElementById("muteText")
+        .textContent = "Mute";
+}
+
+function removePeer(id) {
+
+    const peer =
+        peers.get(id);
+
+    if (peer) {
+        try {
+            peer.close();
+        } catch {}
+    }
+
+    peers.delete(id);
+    iceQueue.delete(id);
+
+    const audio =
+        document.getElementById(
+            "audio-" + id
+        );
+
+    if (audio) {
+        audio.remove();
+    }
+
+    if (activeCall === id) {
+        cleanupVoice(false);
+    }
+}
+
+function getUserName(id) {
+
+    const user =
+        users.get(id);
+
+    return user
+        ? user.username
+        : "User";
+}
+
+function showVoice(name, state) {
+
+    document
+        .getElementById("voicePanel")
+        .style.display = "flex";
+
+    document
+        .getElementById("voiceName")
+        .textContent = name;
+
+    document
+        .getElementById("voiceStatus")
+        .textContent = state;
+}
+
 </script>
 
 </body>
