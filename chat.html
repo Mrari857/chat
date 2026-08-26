@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>My Chat</title>
+
+    <style>
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 0 15px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #status {
+            text-align: center;
+            margin-bottom: 10px;
+            color: #777;
+        }
+
+        #messages {
+            height: 450px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            padding: 10px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+        }
+
+        .message {
+            padding: 10px;
+            margin-bottom: 7px;
+            background: #eee;
+            border-radius: 8px;
+        }
+
+        .private {
+            background: #fff0c7;
+        }
+
+        .name {
+            font-weight: bold;
+        }
+
+        .reply {
+            margin-top: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            color: #555;
+        }
+
+        .reply:hover {
+            text-decoration: underline;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 5px;
+        }
+
+        #message {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+
+        button {
+            padding: 12px 18px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: #333;
+            color: white;
+        }
+
+        #replying {
+            background: #fff0c7;
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 5px;
+            display: none;
+        }
+
+        #cancelReply {
+            margin-left: 10px;
+            cursor: pointer;
+        }
+
+    </style>
+</head>
+
+<body>
+
+<h1>💬 My Chat</h1>
+
+<div id="status">Connecting...</div>
+
+<div id="replying">
+    ↩️ Replying privately to
+    <b id="replyName"></b>
+
+    <span id="cancelReply">❌</span>
+</div>
+
+<div id="messages"></div>
+
+<div class="input-area">
+
+    <input
+        id="message"
+        type="text"
+        placeholder="Type a message..."
+        autocomplete="off"
+    >
+
+    <button onclick="sendMessage()">Send</button>
+
+</div>
+
+<script>
+
+let username = prompt("Choose your username:");
+
+if (!username || username.trim() === "") {
+    username = "Anonymous";
+}
+
+username = username.trim();
+
+const SERVER = "wss://" + window.location.host;
+
+const socket = new WebSocket(SERVER);
+
+const messages = document.getElementById("messages");
+const input = document.getElementById("message");
+const status = document.getElementById("status");
+
+const replyingBox = document.getElementById("replying");
+const replyName = document.getElementById("replyName");
+const cancelReply = document.getElementById("cancelReply");
+
+let replyingTo = null;
+
+
+// CONNECTED
+
+socket.onopen = function() {
+
+    status.textContent = "🟢 Connected as " + username;
+
+    socket.send(JSON.stringify({
+        type: "username",
+        username: username
+    }));
+};
+
+
+// RECEIVE MESSAGE
+
+socket.onmessage = function(event) {
+
+    const data = JSON.parse(event.data);
+
+    const message = document.createElement("div");
+
+    message.className = "message";
+
+    if (data.type === "private") {
+
+        message.classList.add("private");
+
+        message.innerHTML =
+            `<span class="name">🔒 ${escapeHtml(data.from)}</span>: ` +
+            `${escapeHtml(data.text)}`;
+
+        addReplyButton(message, data.from);
+
+    } else {
+
+        message.innerHTML =
+            `<span class="name">${escapeHtml(data.from)}</span>: ` +
+            `${escapeHtml(data.text)}`;
+
+        addReplyButton(message, data.from);
+    }
+
+    messages.appendChild(message);
+
+    messages.scrollTop = messages.scrollHeight;
+};
+
+
+// REPLY BUTTON
+
+function addReplyButton(element, person) {
+
+    if (person === username) {
+        return;
+    }
+
+    const reply = document.createElement("div");
+
+    reply.className = "reply";
+
+    reply.textContent = "↩️ Reply privately";
+
+    reply.onclick = function() {
+
+        replyingTo = person;
+
+        replyName.textContent = person;
+
+        replyingBox.style.display = "block";
+
+        input.focus();
+    };
+
+    element.appendChild(reply);
+}
+
+
+// SEND MESSAGE
+
+function sendMessage() {
+
+    const text = input.value.trim();
+
+    if (text === "") {
+        return;
+    }
+
+    if (socket.readyState !== WebSocket.OPEN) {
+        alert("Not connected.");
+        return;
+    }
+
+    // PRIVATE REPLY
+
+    if (replyingTo) {
+
+        socket.send(JSON.stringify({
+
+            type: "private",
+
+            to: replyingTo,
+
+            text: text
+
+        }));
+
+    }
+
+    // PUBLIC MESSAGE
+
+    else {
+
+        socket.send(JSON.stringify({
+
+            type: "public",
+
+            text: text
+
+        }));
+
+    }
+
+    input.value = "";
+
+    cancelPrivateReply();
+
+    input.focus();
+}
+
+
+// CANCEL REPLY
+
+function cancelPrivateReply() {
+
+    replyingTo = null;
+
+    replyingBox.style.display = "none";
+
+    replyName.textContent = "";
+}
+
+
+cancelReply.onclick = cancelPrivateReply;
+
+
+// ENTER TO SEND
+
+input.addEventListener("keydown", function(event) {
+
+    if (event.key === "Enter") {
+
+        sendMessage();
+
+    }
+
+});
+
+
+// SECURITY
+
+function escapeHtml(text) {
+
+    const div = document.createElement("div");
+
+    div.textContent = text;
+
+    return div.innerHTML;
+}
+
+
+// CONNECTION STATUS
+
+socket.onclose = function() {
+
+    status.textContent = "🔴 Disconnected";
+
+};
+
+
+socket.onerror = function() {
+
+    status.textContent = "❌ Connection error";
+
+};
+
+</script>
+
+</body>
+
+</html>
