@@ -404,6 +404,24 @@ button{cursor:pointer}
         justify-content:space-between;
     }
 }
+.voice-join{
+    display:none;
+}
+
+@media(max-width:900px){
+
+    .voice-join{
+        display:block;
+        position:fixed;
+        right:15px;
+        top:78px;
+        width:auto;
+        margin:0;
+        z-index:60;
+        padding:11px 15px;
+    }
+
+}
 </style>
 </head>
 
@@ -537,15 +555,15 @@ button{cursor:pointer}
 
     <div id="users"></div>
 
-    <button
-        class="voice-join"
-        id="joinVoice"
-        onclick="toggleVoice()"
-    >
-        🎙️ Join Voice
-    </button>
-
 </aside>
+
+<button
+    class="voice-join"
+    id="joinVoice"
+    onclick="toggleVoice()"
+>
+    🎙️ Join Voice
+</button>
 
 </div>
 
