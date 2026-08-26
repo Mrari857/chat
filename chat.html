@@ -51,7 +51,6 @@ input, button {
     padding: 8px;
     margin-bottom: 5px;
 }
-
 </style>
 </head>
 
@@ -71,30 +70,21 @@ input, button {
     <button onclick="makePublic()">Public</button>
 </div>
 
-<input
-    id="message"
-    placeholder="Message..."
-    onkeydown="enterSend(event)"
->
-
+<input id="message" placeholder="Message..." onkeydown="enterSend(event)">
 <button onclick="sendMessage()">Send</button>
 
 <br><br>
 
-<button id="voice" onclick="toggleVoice()">
-    🎙️ Join Voice
-</button>
-
+<button id="voice" onclick="toggleVoice()">🎙️ Join Voice</button>
 <span id="voiceStatus">Voice off</span>
 
 <div id="audio"></div>
 
-
 <script>
 
 const ws = new WebSocket(
-    (location.protocol === "https:" ? "wss://" : "ws://")
-    + location.host
+    (location.protocol === "https:" ? "wss://" : "ws://") +
+    location.host
 );
 
 let myId = null;
@@ -105,6 +95,7 @@ let voiceOn = false;
 let stream = null;
 
 const peers = new Map();
+const pendingIce = new Map();
 const users = new Map();
 
 const rtcConfig = {
@@ -112,7 +103,6 @@ const rtcConfig = {
         { urls: "stun:stun.l.google.com:19302" }
     ]
 };
-
 
 const status = document.getElementById("status");
 const messages = document.getElementById("messages");
@@ -128,134 +118,90 @@ const voiceStatus = document.getElementById("voiceStatus");
 // ============================
 
 ws.onopen = () => {
-
     status.textContent = "Connected";
-
     sendUsername();
 };
 
-
 ws.onclose = () => {
-
     status.textContent = "Disconnected";
 };
-
 
 ws.onmessage = async (event) => {
 
     const data = JSON.parse(event.data);
 
-
     if (data.type === "your-id") {
-
         myId = data.id;
         return;
     }
 
-
     if (data.type === "user-list") {
-
         users.clear();
 
         for (const user of data.users) {
-
             users.set(user.id, user);
-
         }
 
         return;
     }
 
-
     if (data.type === "public") {
-
-        showMessage(
-            data.from,
-            data.text,
-            false
-        );
-
+        showMessage(data.from, data.text, false);
         return;
     }
-
 
     if (data.type === "private") {
-
-        showMessage(
-            data.from,
-            data.text,
-            true,
-            data.to
-        );
-
+        showMessage(data.from, data.text, true, data.to);
         return;
     }
-
 
     if (data.type === "user-left") {
-
         removePeer(data.id);
-
         return;
     }
-
-
-    // ========================
-    // WEBRTC OFFER
-    // ========================
 
     if (data.type === "voice-offer") {
-
         await answerVoice(data);
-
         return;
     }
-
-
-    // ========================
-    // WEBRTC ANSWER
-    // ========================
 
     if (data.type === "voice-answer") {
 
-        const peer =
-            peers.get(data.from);
+        const peer = peers.get(data.from);
 
-        if (peer) {
+        if (!peer) return;
 
-            await peer.setRemoteDescription(
-                data.answer
-            );
+        try {
+            await peer.setRemoteDescription(data.answer);
+            await flushIce(data.from);
+        } catch (e) {
+            console.error("Answer error:", e);
         }
 
         return;
     }
 
-
-    // ========================
-    // ICE
-    // ========================
-
     if (data.type === "voice-ice") {
 
-        const peer =
-            peers.get(data.from);
+        if (!data.candidate) return;
 
-        if (peer && data.candidate) {
+        const peer = peers.get(data.from);
 
-            try {
+        if (!peer || !peer.remoteDescription) {
 
-                await peer.addIceCandidate(
-                    data.candidate
-                );
-
-            } catch (e) {
-
-                console.log(e);
+            if (!pendingIce.has(data.from)) {
+                pendingIce.set(data.from, []);
             }
+
+            pendingIce.get(data.from).push(data.candidate);
+            return;
         }
 
-        return;
+        try {
+            await peer.addIceCandidate(data.candidate);
+        } catch (e) {
+            console.error("ICE error:", e);
+        }
     }
 };
 
@@ -268,21 +214,16 @@ function sendUsername() {
 
     ws.send(JSON.stringify({
         type: "username",
-        username: username
+        username
     }));
 }
 
-
 function setUsername() {
 
-    const input =
-        document.getElementById("username");
-
-    const name =
-        input.value.trim();
+    const input = document.getElementById("username");
+    const name = input.value.trim();
 
     if (name) {
-
         username = name;
     }
 
@@ -299,46 +240,33 @@ function setUsername() {
 
 function sendMessage() {
 
-    const text =
-        message.value.trim();
+    const text = message.value.trim();
 
     if (!text) return;
-
 
     if (privateTo) {
 
         ws.send(JSON.stringify({
-
             type: "private",
-
             to: privateTo,
-
-            text: text
-
+            text
         }));
 
     } else {
 
         ws.send(JSON.stringify({
-
             type: "public",
-
-            text: text
-
+            text
         }));
     }
-
 
     message.value = "";
 }
 
-
 function enterSend(event) {
 
     if (event.key === "Enter") {
-
         event.preventDefault();
-
         sendMessage();
     }
 }
@@ -348,68 +276,39 @@ function enterSend(event) {
 // DISPLAY
 // ============================
 
-function showMessage(
-    from,
-    text,
-    isPrivate,
-    to
-) {
+function showMessage(from, text, isPrivate, to) {
 
-    const div =
-        document.createElement("div");
+    const div = document.createElement("div");
 
     div.className =
-        "msg" +
-        (isPrivate ? " private" : "");
+        "msg" + (isPrivate ? " private" : "");
 
+    const textSpan = document.createElement("span");
 
-    const textSpan =
-        document.createElement("span");
+    textSpan.textContent = isPrivate
+        ? `🔒 ${from} → ${to}: ${text}`
+        : `${from}: ${text}`;
 
-    if (isPrivate) {
+    const reply = document.createElement("button");
 
-        textSpan.textContent =
-            `🔒 ${from} → ${to}: ${text}`;
-
-    } else {
-
-        textSpan.textContent =
-            `${from}: ${text}`;
-    }
-
-
-    const reply =
-        document.createElement("button");
-
-    reply.textContent =
-        "Reply";
-
+    reply.textContent = "Reply";
 
     reply.onclick = () => {
 
         privateTo = from;
 
-        privateName.textContent =
-            from;
-
-        privateBar.style.display =
-            "block";
-
-        message.placeholder =
-            "Private message...";
-
+        privateName.textContent = from;
+        privateBar.style.display = "block";
+        message.placeholder = "Private message...";
         message.focus();
     };
 
-
     div.appendChild(textSpan);
-
     div.appendChild(reply);
 
     messages.appendChild(div);
 
-    messages.scrollTop =
-        messages.scrollHeight;
+    messages.scrollTop = messages.scrollHeight;
 }
 
 
@@ -421,12 +320,8 @@ function makePublic() {
 
     privateTo = null;
 
-    privateBar.style.display =
-        "none";
-
-    message.placeholder =
-        "Message...";
-
+    privateBar.style.display = "none";
+    message.placeholder = "Message...";
     message.focus();
 }
 
@@ -438,41 +333,32 @@ function makePublic() {
 async function toggleVoice() {
 
     if (voiceOn) {
-
         stopVoice();
-
     } else {
-
         await startVoice();
     }
 }
-
 
 async function startVoice() {
 
     try {
 
-        stream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true
-            });
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
 
         voiceOn = true;
 
-        voiceButton.textContent =
-            "🔴 Leave Voice";
-
-        voiceStatus.textContent =
-            "Microphone ON";
-
-
-        // Create connections to everyone
-        // already in the chat.
+        voiceButton.textContent = "🔴 Leave Voice";
+        voiceStatus.textContent = "Microphone ON";
 
         for (const [id] of users) {
 
             if (id !== myId) {
-
                 await makeOffer(id);
             }
         }
@@ -481,104 +367,92 @@ async function startVoice() {
 
         console.error(error);
 
-        alert(
-            "Could not access the microphone."
-        );
+        alert("Could not access the microphone.");
     }
 }
 
 
 // ============================
-// CREATE OFFER
+// OFFER
 // ============================
 
 async function makeOffer(id) {
 
     if (!stream) return;
 
-    const peer =
-        makePeer(id);
+    const peer = makePeer(id);
 
+    try {
 
-    const offer =
-        await peer.createOffer();
+        const offer = await peer.createOffer();
 
+        await peer.setLocalDescription(offer);
 
-    await peer.setLocalDescription(
-        offer
-    );
+        ws.send(JSON.stringify({
+            type: "voice-offer",
+            to: id,
+            offer: peer.localDescription
+        }));
 
+    } catch (e) {
 
-    ws.send(JSON.stringify({
-
-        type: "voice-offer",
-
-        to: id,
-
-        offer: offer
-    }));
+        console.error("Offer error:", e);
+    }
 }
 
 
 // ============================
-// ANSWER OFFER
+// ANSWER
 // ============================
 
 async function answerVoice(data) {
-
-    // We need our microphone stream
-    // so we can send audio back.
 
     if (!stream) {
 
         try {
 
-            stream =
-                await navigator.mediaDevices.getUserMedia({
-                    audio: true
-                });
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
 
             voiceOn = true;
 
-            voiceButton.textContent =
-                "🔴 Leave Voice";
+            voiceButton.textContent = "🔴 Leave Voice";
+            voiceStatus.textContent = "Microphone ON";
 
-            voiceStatus.textContent =
-                "Microphone ON";
+        } catch (e) {
 
-        } catch {
-
+            console.error("Microphone error:", e);
             return;
         }
     }
 
+    const peer = makePeer(data.from);
 
-    const peer =
-        makePeer(data.from);
+    try {
 
+        await peer.setRemoteDescription(data.offer);
 
-    await peer.setRemoteDescription(
-        data.offer
-    );
+        await flushIce(data.from);
 
+        const answer = await peer.createAnswer();
 
-    const answer =
-        await peer.createAnswer();
+        await peer.setLocalDescription(answer);
 
+        ws.send(JSON.stringify({
+            type: "voice-answer",
+            to: data.from,
+            answer: peer.localDescription
+        }));
 
-    await peer.setLocalDescription(
-        answer
-    );
+    } catch (e) {
 
-
-    ws.send(JSON.stringify({
-
-        type: "voice-answer",
-
-        to: data.from,
-
-        answer: answer
-    }));
+        console.error("Answer error:", e);
+    }
 }
 
 
@@ -589,85 +463,105 @@ async function answerVoice(data) {
 function makePeer(id) {
 
     if (peers.has(id)) {
-
         return peers.get(id);
     }
 
-
-    const peer =
-        new RTCPeerConnection(
-            rtcConfig
-        );
-
+    const peer = new RTCPeerConnection(rtcConfig);
 
     peers.set(id, peer);
-
 
     if (stream) {
 
         for (const track of stream.getTracks()) {
-
-            peer.addTrack(
-                track,
-                stream
-            );
+            peer.addTrack(track, stream);
         }
     }
 
+    peer.ontrack = async (event) => {
 
-    // RECEIVE AUDIO
-
-    peer.ontrack = (event) => {
-
-        let audio =
-            document.getElementById(
-                "audio-" + id
-            );
-
+        let audio = document.getElementById("audio-" + id);
 
         if (!audio) {
 
-            audio =
-                document.createElement("audio");
+            audio = document.createElement("audio");
 
-            audio.id =
-                "audio-" + id;
-
+            audio.id = "audio-" + id;
             audio.autoplay = true;
+            audio.playsInline = true;
+            audio.controls = false;
 
-            document
-                .getElementById("audio")
-                .appendChild(audio);
+            document.getElementById("audio").appendChild(audio);
         }
 
+        if (event.streams && event.streams[0]) {
+            audio.srcObject = event.streams[0];
+        } else {
 
-        audio.srcObject =
-            event.streams[0];
+            const remoteStream = new MediaStream();
+            remoteStream.addTrack(event.track);
+            audio.srcObject = remoteStream;
+        }
 
-        audio.play().catch(() => {});
+        try {
+            await audio.play();
+        } catch (e) {
+            console.log("Audio autoplay waiting:", e);
+        }
     };
-
-
-    // SEND ICE
 
     peer.onicecandidate = (event) => {
 
         if (event.candidate) {
 
             ws.send(JSON.stringify({
-
                 type: "voice-ice",
-
                 to: id,
-
-                candidate:
-                    event.candidate
+                candidate: event.candidate
             }));
         }
     };
 
+    peer.onconnectionstatechange = () => {
+
+        console.log(
+            "Voice connection",
+            id,
+            peer.connectionState
+        );
+
+        if (
+            peer.connectionState === "failed" ||
+            peer.connectionState === "closed"
+        ) {
+            removePeer(id);
+        }
+    };
 
     return peer;
+}
+
+
+// ============================
+// ICE QUEUE
+// ============================
+
+async function flushIce(id) {
+
+    const peer = peers.get(id);
+    const candidates = pendingIce.get(id);
+
+    if (!peer || !candidates) return;
+
+    for (const candidate of candidates) {
+
+        try {
+            await peer.addIceCandidate(candidate);
+        } catch (e) {
+            console.error("Queued ICE error:", e);
+        }
+    }
+
+    pendingIce.delete(id);
 }
 
 
@@ -677,24 +571,19 @@ function makePeer(id) {
 
 function removePeer(id) {
 
-    const peer =
-        peers.get(id);
+    const peer = peers.get(id);
 
     if (peer) {
-
         peer.close();
-
         peers.delete(id);
     }
 
+    pendingIce.delete(id);
 
-    const audio =
-        document.getElementById(
-            "audio-" + id
-        );
+    const audio = document.getElementById("audio-" + id);
 
     if (audio) {
-
+        audio.srcObject = null;
         audio.remove();
     }
 }
@@ -708,35 +597,28 @@ function stopVoice() {
 
     voiceOn = false;
 
-
     if (stream) {
 
-        stream
-            .getTracks()
-            .forEach(track => track.stop());
-
+        stream.getTracks().forEach(track => track.stop());
         stream = null;
     }
 
-
     for (const peer of peers.values()) {
-
         peer.close();
     }
 
     peers.clear();
-
+    pendingIce.clear();
 
     document
         .querySelectorAll("#audio audio")
-        .forEach(a => a.remove());
+        .forEach(a => {
+            a.srcObject = null;
+            a.remove();
+        });
 
-
-    voiceButton.textContent =
-        "🎙️ Join Voice";
-
-    voiceStatus.textContent =
-        "Voice off";
+    voiceButton.textContent = "🎙️ Join Voice";
+    voiceStatus.textContent = "Voice off";
 }
 
 </script>
