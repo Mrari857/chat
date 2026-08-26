@@ -3,14 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <title>Chat</title>
 
 <style>
 body {
     font-family: Arial, sans-serif;
     max-width: 800px;
-    margin: 30px auto;
+    margin: 20px auto;
     padding: 15px;
 }
 
@@ -19,51 +18,40 @@ body {
     overflow-y: auto;
     border: 1px solid #ccc;
     padding: 10px;
-    margin-bottom: 10px;
+    margin: 10px 0;
 }
 
-.message {
-    padding: 8px;
+.msg {
+    padding: 7px;
     margin: 5px 0;
-    border-radius: 6px;
     background: #f1f1f1;
+    border-radius: 6px;
 }
 
 .private {
     background: #fff3cd;
 }
 
-.message button {
-    padding: 4px 8px;
+.msg button {
     margin-left: 8px;
-    font-size: 12px;
+    padding: 3px 7px;
 }
 
-input,
-button {
-    padding: 10px;
-    margin: 3px;
+input, button {
+    padding: 9px;
 }
 
 #message {
     width: 60%;
 }
 
-#privateMode {
+#privateBar {
     display: none;
-    padding: 8px;
-    margin-bottom: 8px;
     background: #fff3cd;
-    border-radius: 5px;
+    padding: 8px;
+    margin-bottom: 5px;
 }
 
-#voiceButton {
-    font-size: 16px;
-}
-
-#voiceStatus {
-    margin-left: 8px;
-}
 </style>
 </head>
 
@@ -71,39 +59,35 @@ button {
 
 <h1>Chat</h1>
 
-<div>
-    <input id="username" placeholder="Your username">
-    <button onclick="setUsername()">Set username</button>
-</div>
+<input id="username" placeholder="Username">
+<button onclick="setUsername()">Set</button>
 
 <p id="status">Connecting...</p>
 
 <div id="messages"></div>
 
-<div id="privateMode">
-    🔒 Private message to <strong id="privateTarget"></strong>
-    <button onclick="cancelPrivate()">Public</button>
+<div id="privateBar">
+    🔒 Private to <b id="privateName"></b>
+    <button onclick="makePublic()">Public</button>
 </div>
 
-<div>
-    <input
-        id="message"
-        placeholder="Message..."
-        onkeydown="handleEnter(event)"
-    >
+<input
+    id="message"
+    placeholder="Message..."
+    onkeydown="enterSend(event)"
+>
 
-    <button onclick="sendMessage()">Send</button>
-</div>
+<button onclick="sendMessage()">Send</button>
 
-<br>
+<br><br>
 
-<button id="voiceButton" onclick="toggleVoice()">
+<button id="voice" onclick="toggleVoice()">
     🎙️ Join Voice
 </button>
 
 <span id="voiceStatus">Voice off</span>
 
-<div id="audioContainer"></div>
+<div id="audio"></div>
 
 
 <script>
@@ -115,43 +99,28 @@ const ws = new WebSocket(
 
 let myId = null;
 let username = "Anonymous";
+let privateTo = null;
 
-let privateTarget = null;
+let voiceOn = false;
+let stream = null;
 
-let localStream = null;
-let voiceEnabled = false;
+const peers = new Map();
+const users = new Map();
 
-const peers = {};
-const knownUsers = new Set();
-
-const configuration = {
+const rtcConfig = {
     iceServers: [
-        {
-            urls: "stun:stun.l.google.com:19302"
-        }
+        { urls: "stun:stun.l.google.com:19302" }
     ]
 };
 
-const status =
-    document.getElementById("status");
 
-const messages =
-    document.getElementById("messages");
-
-const messageInput =
-    document.getElementById("message");
-
-const privateMode =
-    document.getElementById("privateMode");
-
-const privateTargetText =
-    document.getElementById("privateTarget");
-
-const voiceButton =
-    document.getElementById("voiceButton");
-
-const voiceStatus =
-    document.getElementById("voiceStatus");
+const status = document.getElementById("status");
+const messages = document.getElementById("messages");
+const message = document.getElementById("message");
+const privateBar = document.getElementById("privateBar");
+const privateName = document.getElementById("privateName");
+const voiceButton = document.getElementById("voice");
+const voiceStatus = document.getElementById("voiceStatus");
 
 
 // ============================
@@ -162,10 +131,7 @@ ws.onopen = () => {
 
     status.textContent = "Connected";
 
-    ws.send(JSON.stringify({
-        type: "username",
-        username: username
-    }));
+    sendUsername();
 };
 
 
@@ -175,50 +141,35 @@ ws.onclose = () => {
 };
 
 
-ws.onerror = () => {
-
-    status.textContent = "Connection error";
-};
-
-
-// ============================
-// RECEIVE
-// ============================
-
 ws.onmessage = async (event) => {
 
     const data = JSON.parse(event.data);
 
 
-    // Our ID
     if (data.type === "your-id") {
 
         myId = data.id;
-
         return;
     }
 
 
-    // User joined / username
-    if (data.type === "user") {
+    if (data.type === "user-list") {
 
-        knownUsers.add(data.id);
+        users.clear();
 
-        if (
-            voiceEnabled &&
-            data.id !== myId
-        ) {
-            await createOffer(data.id);
+        for (const user of data.users) {
+
+            users.set(user.id, user);
+
         }
 
         return;
     }
 
 
-    // Public message
     if (data.type === "public") {
 
-        addMessage(
+        showMessage(
             data.from,
             data.text,
             false
@@ -228,10 +179,9 @@ ws.onmessage = async (event) => {
     }
 
 
-    // Private message
     if (data.type === "private") {
 
-        addMessage(
+        showMessage(
             data.from,
             data.text,
             true,
@@ -242,7 +192,6 @@ ws.onmessage = async (event) => {
     }
 
 
-    // User left
     if (data.type === "user-left") {
 
         removePeer(data.id);
@@ -251,26 +200,31 @@ ws.onmessage = async (event) => {
     }
 
 
-    // WebRTC offer
+    // ========================
+    // WEBRTC OFFER
+    // ========================
+
     if (data.type === "voice-offer") {
 
-        await receiveOffer(data);
+        await answerVoice(data);
 
         return;
     }
 
 
-    // WebRTC answer
+    // ========================
+    // WEBRTC ANSWER
+    // ========================
+
     if (data.type === "voice-answer") {
 
-        const peer = peers[data.from];
+        const peer =
+            peers.get(data.from);
 
         if (peer) {
 
             await peer.setRemoteDescription(
-                new RTCSessionDescription(
-                    data.answer
-                )
+                data.answer
             );
         }
 
@@ -278,30 +232,26 @@ ws.onmessage = async (event) => {
     }
 
 
+    // ========================
     // ICE
+    // ========================
+
     if (data.type === "voice-ice") {
 
-        const peer = peers[data.from];
+        const peer =
+            peers.get(data.from);
 
-        if (
-            peer &&
-            data.candidate
-        ) {
+        if (peer && data.candidate) {
 
             try {
 
                 await peer.addIceCandidate(
-                    new RTCIceCandidate(
-                        data.candidate
-                    )
+                    data.candidate
                 );
 
-            } catch (error) {
+            } catch (e) {
 
-                console.log(
-                    "ICE error:",
-                    error
-                );
+                console.log(e);
             }
         }
 
@@ -314,6 +264,15 @@ ws.onmessage = async (event) => {
 // USERNAME
 // ============================
 
+function sendUsername() {
+
+    ws.send(JSON.stringify({
+        type: "username",
+        username: username
+    }));
+}
+
+
 function setUsername() {
 
     const input =
@@ -323,66 +282,58 @@ function setUsername() {
         input.value.trim();
 
     if (name) {
+
         username = name;
     }
 
-    ws.send(JSON.stringify({
-        type: "username",
-        username: username
-    }));
+    sendUsername();
 
     status.textContent =
-        `Connected as ${username}`;
+        "Connected as " + username;
 }
 
 
 // ============================
-// SEND MESSAGE
+// CHAT
 // ============================
 
 function sendMessage() {
 
     const text =
-        messageInput.value.trim();
+        message.value.trim();
 
     if (!text) return;
 
 
-    // Private
-    if (privateTarget) {
+    if (privateTo) {
 
         ws.send(JSON.stringify({
 
             type: "private",
 
-            to: privateTarget,
+            to: privateTo,
 
             text: text
+
         }));
 
-    }
-
-    // Public
-    else {
+    } else {
 
         ws.send(JSON.stringify({
 
             type: "public",
 
             text: text
+
         }));
     }
 
 
-    messageInput.value = "";
+    message.value = "";
 }
 
 
-// ============================
-// ENTER SENDS MESSAGE
-// ============================
-
-function handleEnter(event) {
+function enterSend(event) {
 
     if (event.key === "Enter") {
 
@@ -394,64 +345,21 @@ function handleEnter(event) {
 
 
 // ============================
-// REPLY PRIVATELY
+// DISPLAY
 // ============================
 
-function replyTo(name) {
-
-    if (name === username) {
-        return;
-    }
-
-    privateTarget = name;
-
-    privateTargetText.textContent =
-        name;
-
-    privateMode.style.display =
-        "block";
-
-    messageInput.placeholder =
-        `Private message to ${name}...`;
-
-    messageInput.focus();
-}
-
-
-// ============================
-// RETURN TO PUBLIC
-// ============================
-
-function cancelPrivate() {
-
-    privateTarget = null;
-
-    privateMode.style.display =
-        "none";
-
-    messageInput.placeholder =
-        "Message...";
-
-    messageInput.focus();
-}
-
-
-// ============================
-// DISPLAY MESSAGE
-// ============================
-
-function addMessage(
+function showMessage(
     from,
     text,
     isPrivate,
-    to = null
+    to
 ) {
 
     const div =
         document.createElement("div");
 
     div.className =
-        "message" +
+        "msg" +
         (isPrivate ? " private" : "");
 
 
@@ -470,21 +378,33 @@ function addMessage(
     }
 
 
-    const replyButton =
+    const reply =
         document.createElement("button");
 
-    replyButton.textContent =
+    reply.textContent =
         "Reply";
 
-    replyButton.onclick = () => {
 
-        replyTo(from);
+    reply.onclick = () => {
+
+        privateTo = from;
+
+        privateName.textContent =
+            from;
+
+        privateBar.style.display =
+            "block";
+
+        message.placeholder =
+            "Private message...";
+
+        message.focus();
     };
 
 
     div.appendChild(textSpan);
 
-    div.appendChild(replyButton);
+    div.appendChild(reply);
 
     messages.appendChild(div);
 
@@ -494,12 +414,30 @@ function addMessage(
 
 
 // ============================
+// PUBLIC MODE
+// ============================
+
+function makePublic() {
+
+    privateTo = null;
+
+    privateBar.style.display =
+        "none";
+
+    message.placeholder =
+        "Message...";
+
+    message.focus();
+}
+
+
+// ============================
 // VOICE
 // ============================
 
 async function toggleVoice() {
 
-    if (voiceEnabled) {
+    if (voiceOn) {
 
         stopVoice();
 
@@ -514,13 +452,12 @@ async function startVoice() {
 
     try {
 
-        localStream =
+        stream =
             await navigator.mediaDevices.getUserMedia({
-                audio: true,
-                video: false
+                audio: true
             });
 
-        voiceEnabled = true;
+        voiceOn = true;
 
         voiceButton.textContent =
             "🔴 Leave Voice";
@@ -529,11 +466,14 @@ async function startVoice() {
             "Microphone ON";
 
 
-        for (const id of knownUsers) {
+        // Create connections to everyone
+        // already in the chat.
+
+        for (const [id] of users) {
 
             if (id !== myId) {
 
-                await createOffer(id);
+                await makeOffer(id);
             }
         }
 
@@ -542,54 +482,9 @@ async function startVoice() {
         console.error(error);
 
         alert(
-            "Microphone permission was denied or unavailable."
+            "Could not access the microphone."
         );
     }
-}
-
-
-// ============================
-// STOP VOICE
-// ============================
-
-function stopVoice() {
-
-    voiceEnabled = false;
-
-    if (localStream) {
-
-        localStream
-            .getTracks()
-            .forEach(track => track.stop());
-
-        localStream = null;
-    }
-
-
-    for (const id in peers) {
-
-        try {
-            peers[id].close();
-        } catch {}
-
-        delete peers[id];
-    }
-
-
-    document
-        .querySelectorAll("#audioContainer audio")
-        .forEach(audio => {
-
-            audio.srcObject = null;
-            audio.remove();
-        });
-
-
-    voiceButton.textContent =
-        "🎙️ Join Voice";
-
-    voiceStatus.textContent =
-        "Voice off";
 }
 
 
@@ -597,15 +492,12 @@ function stopVoice() {
 // CREATE OFFER
 // ============================
 
-async function createOffer(targetId) {
+async function makeOffer(id) {
 
-    if (!localStream) return;
-
-    if (targetId === myId) return;
-
+    if (!stream) return;
 
     const peer =
-        createPeer(targetId);
+        makePeer(id);
 
 
     const offer =
@@ -621,7 +513,7 @@ async function createOffer(targetId) {
 
         type: "voice-offer",
 
-        to: targetId,
+        to: id,
 
         offer: offer
     }));
@@ -629,20 +521,30 @@ async function createOffer(targetId) {
 
 
 // ============================
-// RECEIVE OFFER
+// ANSWER OFFER
 // ============================
 
-async function receiveOffer(data) {
+async function answerVoice(data) {
 
-    if (!localStream) {
+    // We need our microphone stream
+    // so we can send audio back.
+
+    if (!stream) {
 
         try {
 
-            localStream =
+            stream =
                 await navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                    video: false
+                    audio: true
                 });
+
+            voiceOn = true;
+
+            voiceButton.textContent =
+                "🔴 Leave Voice";
+
+            voiceStatus.textContent =
+                "Microphone ON";
 
         } catch {
 
@@ -652,13 +554,11 @@ async function receiveOffer(data) {
 
 
     const peer =
-        createPeer(data.from);
+        makePeer(data.from);
 
 
     await peer.setRemoteDescription(
-        new RTCSessionDescription(
-            data.offer
-        )
+        data.offer
     );
 
 
@@ -683,37 +583,39 @@ async function receiveOffer(data) {
 
 
 // ============================
-// CREATE PEER
+// PEER
 // ============================
 
-function createPeer(id) {
+function makePeer(id) {
 
-    if (peers[id]) {
-        return peers[id];
+    if (peers.has(id)) {
+
+        return peers.get(id);
     }
 
 
     const peer =
         new RTCPeerConnection(
-            configuration
+            rtcConfig
         );
 
-    peers[id] = peer;
+
+    peers.set(id, peer);
 
 
-    if (localStream) {
+    if (stream) {
 
-        localStream
-            .getTracks()
-            .forEach(track => {
+        for (const track of stream.getTracks()) {
 
-                peer.addTrack(
-                    track,
-                    localStream
-                );
-            });
+            peer.addTrack(
+                track,
+                stream
+            );
+        }
     }
 
+
+    // RECEIVE AUDIO
 
     peer.ontrack = (event) => {
 
@@ -733,37 +635,36 @@ function createPeer(id) {
 
             audio.autoplay = true;
 
-            audio.controls = true;
-
             document
-                .getElementById(
-                    "audioContainer"
-                )
+                .getElementById("audio")
                 .appendChild(audio);
         }
 
 
         audio.srcObject =
             event.streams[0];
+
+        audio.play().catch(() => {});
     };
 
 
-    peer.onicecandidate =
-        (event) => {
+    // SEND ICE
 
-            if (event.candidate) {
+    peer.onicecandidate = (event) => {
 
-                ws.send(JSON.stringify({
+        if (event.candidate) {
 
-                    type: "voice-ice",
+            ws.send(JSON.stringify({
 
-                    to: id,
+                type: "voice-ice",
 
-                    candidate:
-                        event.candidate
-                }));
-            }
-        };
+                to: id,
+
+                candidate:
+                    event.candidate
+            }));
+        }
+    };
 
 
     return peer;
@@ -776,13 +677,14 @@ function createPeer(id) {
 
 function removePeer(id) {
 
-    if (peers[id]) {
+    const peer =
+        peers.get(id);
 
-        try {
-            peers[id].close();
-        } catch {}
+    if (peer) {
 
-        delete peers[id];
+        peer.close();
+
+        peers.delete(id);
     }
 
 
@@ -792,10 +694,49 @@ function removePeer(id) {
         );
 
     if (audio) {
+
         audio.remove();
     }
+}
 
-    knownUsers.delete(id);
+
+// ============================
+// STOP VOICE
+// ============================
+
+function stopVoice() {
+
+    voiceOn = false;
+
+
+    if (stream) {
+
+        stream
+            .getTracks()
+            .forEach(track => track.stop());
+
+        stream = null;
+    }
+
+
+    for (const peer of peers.values()) {
+
+        peer.close();
+    }
+
+    peers.clear();
+
+
+    document
+        .querySelectorAll("#audio audio")
+        .forEach(a => a.remove());
+
+
+    voiceButton.textContent =
+        "🎙️ Join Voice";
+
+    voiceStatus.textContent =
+        "Voice off";
 }
 
 </script>
