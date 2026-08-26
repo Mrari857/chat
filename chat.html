@@ -75,7 +75,14 @@ input, button {
 
 <br><br>
 
-<button id="voice" onclick="toggleVoice()">🎙️ Join Voice</button>
+<button onclick="toggleVoice()" id="voice">
+    🎙️ Join Voice
+</button>
+
+<button onclick="testAudio()">
+    🔊 Test Audio
+</button>
+
 <span id="voiceStatus">Voice off</span>
 
 <div id="audio"></div>
@@ -136,6 +143,7 @@ ws.onmessage = async (event) => {
     }
 
     if (data.type === "user-list") {
+
         users.clear();
 
         for (const user of data.users) {
@@ -194,6 +202,7 @@ ws.onmessage = async (event) => {
             }
 
             pendingIce.get(data.from).push(data.candidate);
+
             return;
         }
 
@@ -344,11 +353,7 @@ async function startVoice() {
     try {
 
         stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
+            audio: true
         });
 
         voiceOn = true;
@@ -373,6 +378,79 @@ async function startVoice() {
 
 
 // ============================
+// TEST AUDIO
+// ============================
+
+async function testAudio() {
+
+    if (!voiceOn) {
+
+        alert("Join Voice first.");
+        return;
+    }
+
+    const audioContext =
+        new AudioContext();
+
+    const oscillator =
+        audioContext.createOscillator();
+
+    const destination =
+        audioContext.createMediaStreamDestination();
+
+    oscillator.frequency.value = 440;
+    oscillator.connect(destination);
+
+    oscillator.start();
+
+    setTimeout(() => {
+        oscillator.stop();
+        audioContext.close();
+    }, 2000);
+
+    for (const [id, peer] of peers) {
+
+        const testTrack =
+            destination.stream.getAudioTracks()[0];
+
+        peer.addTrack(
+            testTrack,
+            destination.stream
+        );
+
+        console.log(
+            "Test tone sent to",
+            id
+        );
+
+        try {
+
+            const offer =
+                await peer.createOffer();
+
+            await peer.setLocalDescription(offer);
+
+            ws.send(JSON.stringify({
+                type: "voice-offer",
+                to: id,
+                offer: peer.localDescription
+            }));
+
+        } catch (e) {
+
+            console.error(
+                "Test audio offer error:",
+                e
+            );
+        }
+    }
+
+    voiceStatus.textContent =
+        "🔊 Test tone sent";
+}
+
+
+// ============================
 // OFFER
 // ============================
 
@@ -384,7 +462,8 @@ async function makeOffer(id) {
 
     try {
 
-        const offer = await peer.createOffer();
+        const offer =
+            await peer.createOffer();
 
         await peer.setLocalDescription(offer);
 
@@ -411,37 +490,47 @@ async function answerVoice(data) {
 
         try {
 
-            stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
+            stream =
+                await navigator.mediaDevices.getUserMedia({
+                    audio: true
+                });
 
             voiceOn = true;
 
-            voiceButton.textContent = "🔴 Leave Voice";
-            voiceStatus.textContent = "Microphone ON";
+            voiceButton.textContent =
+                "🔴 Leave Voice";
+
+            voiceStatus.textContent =
+                "Microphone ON";
 
         } catch (e) {
 
-            console.error("Microphone error:", e);
+            console.error(
+                "Microphone error:",
+                e
+            );
+
             return;
         }
     }
 
-    const peer = makePeer(data.from);
+    const peer =
+        makePeer(data.from);
 
     try {
 
-        await peer.setRemoteDescription(data.offer);
+        await peer.setRemoteDescription(
+            data.offer
+        );
 
         await flushIce(data.from);
 
-        const answer = await peer.createAnswer();
+        const answer =
+            await peer.createAnswer();
 
-        await peer.setLocalDescription(answer);
+        await peer.setLocalDescription(
+            answer
+        );
 
         ws.send(JSON.stringify({
             type: "voice-answer",
@@ -451,7 +540,10 @@ async function answerVoice(data) {
 
     } catch (e) {
 
-        console.error("Answer error:", e);
+        console.error(
+            "Answer error:",
+            e
+        );
     }
 }
 
@@ -466,46 +558,73 @@ function makePeer(id) {
         return peers.get(id);
     }
 
-    const peer = new RTCPeerConnection(rtcConfig);
+    const peer =
+        new RTCPeerConnection(
+            rtcConfig
+        );
 
     peers.set(id, peer);
 
     if (stream) {
 
         for (const track of stream.getTracks()) {
-            peer.addTrack(track, stream);
+
+            peer.addTrack(
+                track,
+                stream
+            );
         }
     }
 
     peer.ontrack = async (event) => {
 
-        let audio = document.getElementById("audio-" + id);
+        let audio =
+            document.getElementById(
+                "audio-" + id
+            );
 
         if (!audio) {
 
-            audio = document.createElement("audio");
+            audio =
+                document.createElement("audio");
 
-            audio.id = "audio-" + id;
+            audio.id =
+                "audio-" + id;
+
             audio.autoplay = true;
             audio.playsInline = true;
-            audio.controls = false;
 
-            document.getElementById("audio").appendChild(audio);
+            document
+                .getElementById("audio")
+                .appendChild(audio);
         }
 
-        if (event.streams && event.streams[0]) {
-            audio.srcObject = event.streams[0];
+        if (event.streams &&
+            event.streams[0]) {
+
+            audio.srcObject =
+                event.streams[0];
+
         } else {
 
-            const remoteStream = new MediaStream();
-            remoteStream.addTrack(event.track);
-            audio.srcObject = remoteStream;
+            const remoteStream =
+                new MediaStream();
+
+            remoteStream.addTrack(
+                event.track
+            );
+
+            audio.srcObject =
+                remoteStream;
         }
 
         try {
             await audio.play();
         } catch (e) {
-            console.log("Audio autoplay waiting:", e);
+            console.log(
+                "Audio autoplay waiting:",
+                e
+            );
         }
     };
 
@@ -524,17 +643,10 @@ function makePeer(id) {
     peer.onconnectionstatechange = () => {
 
         console.log(
-            "Voice connection",
+            "Voice connection:",
             id,
             peer.connectionState
         );
-
-        if (
-            peer.connectionState === "failed" ||
-            peer.connectionState === "closed"
-        ) {
-            removePeer(id);
-        }
     };
 
     return peer;
@@ -542,22 +654,32 @@ function makePeer(id) {
 
 
 // ============================
-// ICE QUEUE
+// ICE
 // ============================
 
 async function flushIce(id) {
 
-    const peer = peers.get(id);
-    const candidates = pendingIce.get(id);
+    const peer =
+        peers.get(id);
 
-    if (!peer || !candidates) return;
+    const candidates =
+        pendingIce.get(id);
+
+    if (!peer || !candidates) {
+        return;
+    }
 
     for (const candidate of candidates) {
 
         try {
-            await peer.addIceCandidate(candidate);
+            await peer.addIceCandidate(
+                candidate
+            );
         } catch (e) {
-            console.error("Queued ICE error:", e);
+            console.error(
+                "Queued ICE error:",
+                e
+            );
         }
     }
 
@@ -571,18 +693,24 @@ async function flushIce(id) {
 
 function removePeer(id) {
 
-    const peer = peers.get(id);
+    const peer =
+        peers.get(id);
 
     if (peer) {
+
         peer.close();
         peers.delete(id);
     }
 
     pendingIce.delete(id);
 
-    const audio = document.getElementById("audio-" + id);
+    const audio =
+        document.getElementById(
+            "audio-" + id
+        );
 
     if (audio) {
+
         audio.srcObject = null;
         audio.remove();
     }
@@ -599,7 +727,10 @@ function stopVoice() {
 
     if (stream) {
 
-        stream.getTracks().forEach(track => track.stop());
+        stream
+            .getTracks()
+            .forEach(track => track.stop());
+
         stream = null;
     }
 
@@ -617,8 +748,11 @@ function stopVoice() {
             a.remove();
         });
 
-    voiceButton.textContent = "🎙️ Join Voice";
-    voiceStatus.textContent = "Voice off";
+    voiceButton.textContent =
+        "🎙️ Join Voice";
+
+    voiceStatus.textContent =
+        "Voice off";
 }
 
 </script>
