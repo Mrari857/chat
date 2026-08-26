@@ -557,9 +557,7 @@ button {
         ● Online
     </div>
 
-    <div class="connection" id="status">
-        Connecting...
-    </div>
+  
 </div>
 
     </aside>
@@ -639,23 +637,7 @@ button {
                 </button>
             </div>
 
-            <div class="composer">
-
-                <input
-                    id="message"
-                    placeholder="Message #general"
-                    autocomplete="off"
-                    onkeydown="enterSend(event)"
-                >
-
-                <button
-                    class="send"
-                    onclick="sendMessage()"
-                >
-                    Send
-                </button>
-
-            </div>
+            
 
         </div>
 
@@ -912,7 +894,7 @@ function setUsername() {
         $("login").style.display = "none";
     }
 
-    status.textContent = "Connected as " + username;
+  
 }
 
 if ($("username")) {
