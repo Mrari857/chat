@@ -1,346 +1,497 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>My Chat</title>
+    <title>Chat</title>
 
     <style>
-
         body {
             font-family: Arial, sans-serif;
-            background: #f2f2f2;
-            max-width: 700px;
-            margin: 40px auto;
-            padding: 0 15px;
-        }
-
-        h1 {
-            text-align: center;
-        }
-
-        #status {
-            text-align: center;
-            margin-bottom: 10px;
-            color: #777;
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 15px;
         }
 
         #messages {
-            height: 450px;
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 10px;
-            padding: 10px;
+            height: 400px;
             overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
             margin-bottom: 10px;
         }
 
-        .message {
+        input, button {
             padding: 10px;
-            margin-bottom: 7px;
-            background: #eee;
-            border-radius: 8px;
-        }
-
-        .private {
-            background: #fff0c7;
-        }
-
-        .name {
-            font-weight: bold;
-        }
-
-        .reply {
-            margin-top: 5px;
-            font-size: 12px;
-            cursor: pointer;
-            color: #555;
-        }
-
-        .reply:hover {
-            text-decoration: underline;
-        }
-
-        .input-area {
-            display: flex;
-            gap: 5px;
+            margin: 3px;
         }
 
         #message {
-            flex: 1;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            font-size: 16px;
+            width: 60%;
         }
 
-        button {
-            padding: 12px 18px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            background: #333;
-            color: white;
+        .private {
+            background: #fff3cd;
+            padding: 5px;
+            margin: 4px 0;
         }
 
-        #replying {
-            background: #fff0c7;
-            padding: 8px;
-            border-radius: 6px;
-            margin-bottom: 5px;
-            display: none;
+        .public {
+            padding: 5px;
+            margin: 4px 0;
         }
 
-        #cancelReply {
-            margin-left: 10px;
-            cursor: pointer;
+        #voiceButton {
+            font-size: 18px;
         }
-
     </style>
 </head>
 
 <body>
 
-<h1>💬 My Chat</h1>
+<h1>Chat</h1>
 
-<div id="status">Connecting...</div>
-
-<div id="replying">
-    ↩️ Replying privately to
-    <b id="replyName"></b>
-
-    <span id="cancelReply">❌</span>
+<div>
+    <input id="username" placeholder="Your username">
+    <button onclick="setUsername()">Set username</button>
 </div>
+
+<p id="status">Connecting...</p>
 
 <div id="messages"></div>
 
-<div class="input-area">
+<input id="message" placeholder="Message">
 
-    <input
-        id="message"
-        type="text"
-        placeholder="Type a message..."
-        autocomplete="off"
-    >
+<button onclick="sendPublic()">Send</button>
 
-    <button onclick="sendMessage()">Send</button>
+<br>
 
-</div>
+<input id="privateTo" placeholder="Private reply to username">
+
+<button onclick="sendPrivate()">Private</button>
+
+<br>
+
+<button id="voiceButton" onclick="toggleVoice()">
+    🎙️ Voice
+</button>
+
+<span id="voiceStatus">Voice off</span>
+
+<div id="audioContainer"></div>
 
 <script>
+const ws = new WebSocket(
+    (location.protocol === "https:" ? "wss://" : "ws://")
+    + location.host
+);
 
-let username = prompt("Choose your username:");
+let username = "Anonymous";
 
-if (!username || username.trim() === "") {
-    username = "Anonymous";
-}
+let localStream = null;
+let voiceEnabled = false;
 
-username = username.trim();
+const peers = {};
 
-const SERVER = "wss://" + window.location.host;
+const configuration = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
 
-const socket = new WebSocket(SERVER);
-
-const messages = document.getElementById("messages");
-const input = document.getElementById("message");
 const status = document.getElementById("status");
-
-const replyingBox = document.getElementById("replying");
-const replyName = document.getElementById("replyName");
-const cancelReply = document.getElementById("cancelReply");
-
-let replyingTo = null;
+const messages = document.getElementById("messages");
+const voiceButton = document.getElementById("voiceButton");
+const voiceStatus = document.getElementById("voiceStatus");
 
 
-// CONNECTED
+// -------------------------
+// WEBSOCKET
+// -------------------------
 
-socket.onopen = function() {
+ws.onopen = () => {
+    status.textContent = "Connected";
 
-    status.textContent = "🟢 Connected as " + username;
-
-    socket.send(JSON.stringify({
+    ws.send(JSON.stringify({
         type: "username",
         username: username
     }));
 };
 
+ws.onclose = () => {
+    status.textContent = "Disconnected";
+};
 
-// RECEIVE MESSAGE
+ws.onerror = () => {
+    status.textContent = "Connection error";
+};
 
-socket.onmessage = function(event) {
+ws.onmessage = async (event) => {
 
-    const data = JSON.parse(event.data);
+    const message = JSON.parse(event.data);
 
-    const message = document.createElement("div");
+    // Text messages
+    if (message.type === "public") {
 
-    message.className = "message";
+        addMessage(
+            `${message.from}: ${message.text}`,
+            false
+        );
 
-    if (data.type === "private") {
-
-        message.classList.add("private");
-
-        message.innerHTML =
-            `<span class="name">🔒 ${escapeHtml(data.from)}</span>: ` +
-            `${escapeHtml(data.text)}`;
-
-        addReplyButton(message, data.from);
-
-    } else {
-
-        message.innerHTML =
-            `<span class="name">${escapeHtml(data.from)}</span>: ` +
-            `${escapeHtml(data.text)}`;
-
-        addReplyButton(message, data.from);
+        return;
     }
 
-    messages.appendChild(message);
+    if (message.type === "private") {
 
-    messages.scrollTop = messages.scrollHeight;
+        addMessage(
+            `🔒 ${message.from} → ${message.to}: ${message.text}`,
+            true
+        );
+
+        return;
+    }
+
+
+    // WebRTC
+    if (message.type === "voice-offer") {
+
+        await receiveOffer(message);
+
+        return;
+    }
+
+    if (message.type === "voice-answer") {
+
+        const peer = peers[message.from];
+
+        if (peer) {
+            await peer.setRemoteDescription(
+                new RTCSessionDescription(message.answer)
+            );
+        }
+
+        return;
+    }
+
+    if (message.type === "voice-ice") {
+
+        const peer = peers[message.from];
+
+        if (peer && message.candidate) {
+
+            try {
+                await peer.addIceCandidate(
+                    new RTCIceCandidate(message.candidate)
+                );
+            } catch {}
+        }
+
+        return;
+    }
 };
 
 
-// REPLY BUTTON
+// -------------------------
+// USERNAME
+// -------------------------
 
-function addReplyButton(element, person) {
+function setUsername() {
 
-    if (person === username) {
-        return;
+    const input =
+        document.getElementById("username");
+
+    username =
+        input.value.trim() || "Anonymous";
+
+    if (ws.readyState === WebSocket.OPEN) {
+
+        ws.send(JSON.stringify({
+            type: "username",
+            username: username
+        }));
     }
 
-    const reply = document.createElement("div");
-
-    reply.className = "reply";
-
-    reply.textContent = "↩️ Reply privately";
-
-    reply.onclick = function() {
-
-        replyingTo = person;
-
-        replyName.textContent = person;
-
-        replyingBox.style.display = "block";
-
-        input.focus();
-    };
-
-    element.appendChild(reply);
+    status.textContent =
+        `Connected as ${username}`;
 }
 
 
-// SEND MESSAGE
+// -------------------------
+// PUBLIC CHAT
+// -------------------------
 
-function sendMessage() {
+function sendPublic() {
 
-    const text = input.value.trim();
+    const input =
+        document.getElementById("message");
 
-    if (text === "") {
-        return;
-    }
+    const text =
+        input.value.trim();
 
-    if (socket.readyState !== WebSocket.OPEN) {
-        alert("Not connected.");
-        return;
-    }
+    if (!text) return;
 
-    // PRIVATE REPLY
-
-    if (replyingTo) {
-
-        socket.send(JSON.stringify({
-
-            type: "private",
-
-            to: replyingTo,
-
-            text: text
-
-        }));
-
-    }
-
-    // PUBLIC MESSAGE
-
-    else {
-
-        socket.send(JSON.stringify({
-
-            type: "public",
-
-            text: text
-
-        }));
-
-    }
+    ws.send(JSON.stringify({
+        type: "public",
+        text: text
+    }));
 
     input.value = "";
-
-    cancelPrivateReply();
-
-    input.focus();
 }
 
 
-// CANCEL REPLY
+// -------------------------
+// PRIVATE CHAT
+// -------------------------
 
-function cancelPrivateReply() {
+function sendPrivate() {
 
-    replyingTo = null;
+    const input =
+        document.getElementById("message");
 
-    replyingBox.style.display = "none";
+    const target =
+        document.getElementById("privateTo");
 
-    replyName.textContent = "";
+    const text =
+        input.value.trim();
+
+    const to =
+        target.value.trim();
+
+    if (!text || !to) return;
+
+    ws.send(JSON.stringify({
+        type: "private",
+        to: to,
+        text: text
+    }));
+
+    input.value = "";
 }
 
 
-cancelReply.onclick = cancelPrivateReply;
+// -------------------------
+// DISPLAY MESSAGE
+// -------------------------
 
+function addMessage(text, isPrivate) {
 
-// ENTER TO SEND
-
-input.addEventListener("keydown", function(event) {
-
-    if (event.key === "Enter") {
-
-        sendMessage();
-
-    }
-
-});
-
-
-// SECURITY
-
-function escapeHtml(text) {
-
-    const div = document.createElement("div");
+    const div =
+        document.createElement("div");
 
     div.textContent = text;
 
-    return div.innerHTML;
+    div.className =
+        isPrivate ? "private" : "public";
+
+    messages.appendChild(div);
+
+    messages.scrollTop =
+        messages.scrollHeight;
 }
 
 
-// CONNECTION STATUS
+// -------------------------
+// VOICE
+// -------------------------
 
-socket.onclose = function() {
+async function toggleVoice() {
 
-    status.textContent = "🔴 Disconnected";
+    if (!voiceEnabled) {
 
-};
+        await startVoice();
+
+    } else {
+
+        stopVoice();
+
+    }
+}
 
 
-socket.onerror = function() {
+async function startVoice() {
 
-    status.textContent = "❌ Connection error";
+    try {
 
-};
+        localStream =
+            await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false
+            });
 
+        voiceEnabled = true;
+
+        voiceButton.textContent =
+            "🔴 Stop Voice";
+
+        voiceStatus.textContent =
+            "Microphone ON";
+
+        // Create connections for everyone currently connected.
+        // The server relays the signaling messages.
+        ws.send(JSON.stringify({
+            type: "voice-offer",
+            offer: null
+        }));
+
+    } catch (error) {
+
+        console.error(error);
+
+        alert(
+            "Microphone permission was denied or unavailable."
+        );
+    }
+}
+
+
+function stopVoice() {
+
+    voiceEnabled = false;
+
+    if (localStream) {
+
+        localStream
+            .getTracks()
+            .forEach(track => track.stop());
+
+        localStream = null;
+    }
+
+    for (const name in peers) {
+
+        try {
+            peers[name].close();
+        } catch {}
+
+        delete peers[name];
+    }
+
+    voiceButton.textContent =
+        "🎙️ Voice";
+
+    voiceStatus.textContent =
+        "Voice off";
+}
+
+
+// -------------------------
+// RECEIVE VOICE OFFER
+// -------------------------
+
+async function receiveOffer(message) {
+
+    if (!message.offer) {
+
+        // The sender is announcing that voice is available.
+        return;
+    }
+
+    if (!localStream) {
+
+        localStream =
+            await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false
+            });
+    }
+
+    const peer =
+        createPeer(message.from);
+
+    await peer.setRemoteDescription(
+        new RTCSessionDescription(message.offer)
+    );
+
+    const answer =
+        await peer.createAnswer();
+
+    await peer.setLocalDescription(answer);
+
+    ws.send(JSON.stringify({
+        type: "voice-answer",
+        answer: answer
+    }));
+}
+
+
+// -------------------------
+// CREATE PEER
+// -------------------------
+
+function createPeer(name) {
+
+    if (peers[name]) {
+        return peers[name];
+    }
+
+    const peer =
+        new RTCPeerConnection(configuration);
+
+    peers[name] = peer;
+
+
+    // Add microphone
+    if (localStream) {
+
+        localStream
+            .getTracks()
+            .forEach(track => {
+                peer.addTrack(
+                    track,
+                    localStream
+                );
+            });
+    }
+
+
+    // Receive audio
+    peer.ontrack = (event) => {
+
+        let audio =
+            document.getElementById(
+                "audio-" + name
+            );
+
+        if (!audio) {
+
+            audio =
+                document.createElement("audio");
+
+            audio.id =
+                "audio-" + name;
+
+            audio.autoplay = true;
+
+            audio.controls = true;
+
+            document
+                .getElementById("audioContainer")
+                .appendChild(audio);
+        }
+
+        audio.srcObject =
+            event.streams[0];
+    };
+
+
+    // ICE candidates
+    peer.onicecandidate = (event) => {
+
+        if (event.candidate) {
+
+            ws.send(JSON.stringify({
+                type: "voice-ice",
+                candidate: event.candidate
+            }));
+        }
+    };
+
+
+    return peer;
+}
 </script>
 
 </body>
-
 </html>

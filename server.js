@@ -9,7 +9,6 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, {
             "Content-Type": "text/html; charset=utf-8"
         });
-
         res.end(fs.readFileSync("chat.html"));
         return;
     }
@@ -20,7 +19,7 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocket.Server({ server });
 
-function sendTo(socket, data) {
+function send(socket, data) {
     if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(data));
     }
@@ -35,27 +34,30 @@ wss.on("connection", (socket) => {
         try {
             const message = JSON.parse(data.toString());
 
+            // Username
             if (message.type === "username") {
                 socket.username = message.username || "Anonymous";
                 return;
             }
 
+            // Public text
             if (message.type === "public") {
-                const saved = {
+                const msg = {
                     type: "public",
                     from: socket.username,
                     text: String(message.text || "")
                 };
 
                 for (const client of wss.clients) {
-                    sendTo(client, saved);
+                    send(client, msg);
                 }
 
                 return;
             }
 
+            // Private text
             if (message.type === "private") {
-                const saved = {
+                const msg = {
                     type: "private",
                     from: socket.username,
                     to: String(message.to || ""),
@@ -65,9 +67,27 @@ wss.on("connection", (socket) => {
                 for (const client of wss.clients) {
                     if (
                         client === socket ||
-                        client.username === saved.to
+                        client.username === msg.to
                     ) {
-                        sendTo(client, saved);
+                        send(client, msg);
+                    }
+                }
+
+                return;
+            }
+
+            // WebRTC signaling
+            if (
+                message.type === "voice-offer" ||
+                message.type === "voice-answer" ||
+                message.type === "voice-ice"
+            ) {
+                for (const client of wss.clients) {
+                    if (client !== socket) {
+                        send(client, {
+                            ...message,
+                            from: socket.username
+                        });
                     }
                 }
 
