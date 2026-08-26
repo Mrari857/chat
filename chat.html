@@ -587,7 +587,33 @@ button {
 
         <div class="composer-wrap">
 
-            <div
+    <div class="private-bar" id="privateBar">
+        🔒 Private message to
+        <b id="privateName"></b>
+
+        <button onclick="makePublic()">
+            Public
+        </button>
+    </div>
+
+    <div class="composer">
+        <input
+            id="message"
+            type="text"
+            placeholder="Message #general"
+            autocomplete="off"
+            onkeydown="enterSend(event)"
+        >
+
+        <button
+            class="send"
+            onclick="sendMessage()"
+        >
+            Send
+        </button>
+    </div>
+
+</div>
                 class="private-bar"
                 id="privateBar"
             >
