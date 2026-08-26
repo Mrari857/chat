@@ -123,7 +123,11 @@ button {
     font-size: 12px;
     margin-top: 3px;
 }
-
+.me .connection {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--muted);
+}
 /* MAIN */
 
 .main {
@@ -545,14 +549,18 @@ button {
         </div>
 
         <div class="me">
-            <div class="me-name" id="myName">
-                Anonymous
-            </div>
+    <div class="me-name" id="myName">
+        Anonymous
+    </div>
 
-            <div class="me-status">
-                ● Online
-            </div>
-        </div>
+    <div class="me-status">
+        ● Online
+    </div>
+
+    <div class="connection" id="status">
+        Connecting...
+    </div>
+</div>
 
     </aside>
 
@@ -565,9 +573,7 @@ button {
                 💬 General
             </div>
 
-            <div class="connection" id="status">
-                Connecting...
-            </div>
+            
         </header>
 
         <section
