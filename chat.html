@@ -722,20 +722,17 @@ button {
 <script>
 
 const ws = new WebSocket(
-    (location.protocol === "https:" ? "wss://" : "ws://")
-    + location.host
+    (location.protocol === "https:" ? "wss://" : "ws://") + location.host
 );
 
 let myId = null;
 let username = "Anonymous";
-
 let privateTo = null;
 
 let stream = null;
-let voiceMuted = false;
-
 let activeCall = null;
 let incomingCall = null;
+let muted = false;
 
 const users = new Map();
 const peers = new Map();
@@ -743,21 +740,33 @@ const iceQueue = new Map();
 
 const rtcConfig = {
     iceServers: [
-        {
-            urls: "stun:stun.l.google.com:19302"
-        },
-        {
-            urls: "stun:stun1.l.google.com:19302"
-        }
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" }
     ]
 };
 
-const status = document.getElementById("status");
-const messages = document.getElementById("messages");
-const message = document.getElementById("message");
+const $ = id => document.getElementById(id);
+
+const status = $("status");
+const messages = $("messages");
+const messageInput = $("message");
+
+function send(data) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+    }
+}
+
+/* =========================
+   CONNECTION
+========================= */
 
 ws.onopen = () => {
     status.textContent = "Connected";
+    send({
+        type: "username",
+        username
+    });
 };
 
 ws.onclose = () => {
@@ -768,351 +777,298 @@ ws.onerror = () => {
     status.textContent = "Connection error";
 };
 
-ws.onmessage = async (event) => {
-
-    let d;
+ws.onmessage = async event => {
+    let data;
 
     try {
-        d = JSON.parse(event.data);
+        data = JSON.parse(event.data);
     } catch {
         return;
     }
 
-    if (d.type === "your-id") {
-        myId = d.id;
-        sendUsername();
+    if (data.type === "your-id") {
+        myId = data.id;
         return;
     }
 
-    if (d.type === "user-list") {
+    if (data.type === "user-list") {
         users.clear();
 
-        d.users.forEach(user => {
+        for (const user of data.users) {
             users.set(user.id, user);
-        });
+        }
 
         renderUsers();
         return;
     }
 
-    if (d.type === "public") {
-        showMessage(
-            d.from,
-            d.fromId,
-            d.text,
+    if (data.type === "public") {
+        addMessage(
+            data.from,
+            data.fromId,
+            data.text,
             false,
-            d.time
+            data.time
         );
-
         return;
     }
 
-    if (d.type === "private") {
-        showMessage(
-            d.from,
-            d.fromId,
-            d.text,
+    if (data.type === "private") {
+        addMessage(
+            data.from,
+            data.fromId,
+            data.text,
             true,
-            d.time
+            data.time
         );
-
         return;
     }
 
-    if (d.type === "user-left") {
-        removePeer(d.id);
+    if (data.type === "user-left") {
+        removePeer(data.id);
+        renderUsers();
         return;
     }
 
-    if (d.type === "voice-offer") {
-        await receiveOffer(d);
+    if (data.type === "voice-offer") {
+        await incomingOffer(data);
         return;
     }
 
-    if (d.type === "voice-answer") {
-        await receiveAnswer(d);
+    if (data.type === "voice-answer") {
+        await receiveAnswer(data);
         return;
     }
 
-    if (d.type === "voice-ice") {
-        await receiveIce(d);
+    if (data.type === "voice-ice") {
+        await receiveIce(data);
         return;
     }
 
-    if (d.type === "voice-hangup") {
-        if (d.from === activeCall) {
-            cleanupVoice(false);
+    if (data.type === "voice-hangup") {
+        if (activeCall === data.from) {
+            endVoice(false);
         }
-
-        return;
     }
 };
 
-/* USERNAME */
-
-function sendUsername() {
-
-    if (ws.readyState !== WebSocket.OPEN) {
-        return;
-    }
-
-    ws.send(JSON.stringify({
-        type: "username",
-        username
-    }));
-}
+/* =========================
+   USERNAME
+========================= */
 
 function setUsername() {
+    const input = $("username");
 
-    const input =
-        document.getElementById("username");
+    if (!input) return;
 
-    const name =
-        input.value.trim();
+    const name = input.value.trim();
 
-    if (!name) {
-        input.focus();
-        return;
-    }
+    if (!name) return;
 
     username = name.slice(0, 30);
 
-    sendUsername();
+    send({
+        type: "username",
+        username
+    });
 
-    document.getElementById("myName")
-        .textContent = username;
+    if ($("myName")) {
+        $("myName").textContent = username;
+    }
 
-    document.getElementById("login")
-        .style.display = "none";
+    if ($("login")) {
+        $("login").style.display = "none";
+    }
 
-    status.textContent =
-        "Connected as " + username;
+    status.textContent = "Connected as " + username;
 }
 
-document
-    .getElementById("username")
-    .addEventListener("keydown", e => {
-
+if ($("username")) {
+    $("username").addEventListener("keydown", e => {
         if (e.key === "Enter") {
             setUsername();
         }
-
     });
+}
 
-/* USERS */
+/* =========================
+   USERS
+========================= */
 
 function renderUsers() {
+    const container = $("users");
 
-    const container =
-        document.getElementById("users");
+    if (!container) return;
 
     container.innerHTML = "";
 
     for (const user of users.values()) {
+        if (user.id === myId) continue;
 
-        if (user.id === myId) {
-            continue;
-        }
-
-        const row =
-            document.createElement("div");
-
+        const row = document.createElement("div");
         row.className = "user";
 
-        const avatar =
-            document.createElement("div");
-
-        avatar.className =
-            "user-avatar";
-
+        const avatar = document.createElement("div");
+        avatar.className = "user-avatar";
         avatar.textContent =
-            user.username
-                .charAt(0)
-                .toUpperCase();
+            user.username.charAt(0).toUpperCase();
 
-        const info =
-            document.createElement("div");
-
+        const info = document.createElement("div");
         info.className = "user-info";
 
-        const name =
-            document.createElement("div");
-
+        const name = document.createElement("div");
         name.className = "user-name";
+        name.textContent = user.username;
 
-        name.textContent =
-            user.username;
-
-        const state =
-            document.createElement("div");
-
+        const state = document.createElement("div");
         state.className = "user-state";
-
-        state.textContent =
-            "● Online";
+        state.textContent = "● Online";
 
         info.append(name, state);
-
         row.append(avatar, info);
 
-        row.onclick = () => {
+        /* SINGLE CLICK = PRIVATE CHAT */
 
+        row.onclick = () => {
             privateTo = user.id;
 
-            document
-                .getElementById("privateName")
-                .textContent = user.username;
+            $("privateName").textContent =
+                user.username;
 
-            document
-                .getElementById("privateBar")
-                .style.display = "block";
+            $("privateBar").style.display =
+                "block";
 
-            message.placeholder =
-                "Private message to "
-                + user.username;
+            messageInput.placeholder =
+                "Private message to " +
+                user.username;
 
-            message.focus();
+            messageInput.focus();
         };
 
-        /*
-         * Double click user = voice call
-         */
+        /* DOUBLE CLICK = VOICE */
 
         row.ondblclick = () => {
-            startVoice(user.id);
+            callUser(user.id);
         };
 
         container.appendChild(row);
     }
 }
 
-/* CHAT */
+/* =========================
+   PUBLIC / PRIVATE CHAT
+========================= */
 
 function sendMessage() {
-
-    const text =
-        message.value.trim();
+    const text = messageInput.value.trim();
 
     if (!text) return;
 
-    if (ws.readyState !== WebSocket.OPEN) {
-        return;
-    }
-
     if (privateTo) {
-
-        ws.send(JSON.stringify({
+        send({
             type: "private",
             to: privateTo,
             text
-        }));
-
+        });
     } else {
-
-        ws.send(JSON.stringify({
+        send({
             type: "public",
             text
-        }));
-
+        });
     }
 
-    message.value = "";
+    messageInput.value = "";
 }
 
-function enterSend(e) {
-
-    if (e.key === "Enter") {
-        e.preventDefault();
+function enterSend(event) {
+    if (event.key === "Enter") {
+        event.preventDefault();
         sendMessage();
     }
 }
 
-function showMessage(
+function makePublic() {
+    privateTo = null;
+
+    $("privateBar").style.display = "none";
+
+    messageInput.placeholder =
+        "Message #general";
+
+    messageInput.focus();
+}
+
+/* =========================
+   DISPLAY MESSAGE
+========================= */
+
+function addMessage(
     from,
     fromId,
     text,
     isPrivate,
     time
 ) {
-
-    const welcome =
-        document.getElementById("welcome");
+    const welcome = $("welcome");
 
     if (welcome) {
         welcome.remove();
     }
 
-    const div =
-        document.createElement("div");
+    const div = document.createElement("div");
 
     div.className =
         "msg" + (isPrivate ? " private" : "");
 
-    const avatar =
-        document.createElement("div");
+    const avatar = document.createElement("div");
 
     avatar.className = "avatar";
 
     avatar.textContent =
         from.charAt(0).toUpperCase();
 
-    const body =
-        document.createElement("div");
+    const body = document.createElement("div");
 
     body.className = "msg-body";
 
-    const head =
-        document.createElement("div");
+    const head = document.createElement("div");
 
     head.className = "msg-head";
 
-    const name =
-        document.createElement("span");
+    const name = document.createElement("span");
 
     name.className = "msg-name";
-
     name.textContent = from;
 
-    const timestamp =
-        document.createElement("span");
+    const timestamp = document.createElement("span");
 
     timestamp.className = "msg-time";
 
-    timestamp.textContent =
-        time
-            ? new Date(time).toLocaleTimeString(
-                [],
-                {
-                    hour: "2-digit",
-                    minute: "2-digit"
-                }
-            )
-            : "";
+    if (time) {
+        timestamp.textContent =
+            new Date(time).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit"
+            });
+    }
 
-    const reply =
-        document.createElement("button");
+    const reply = document.createElement("button");
 
     reply.className = "reply";
-
-    reply.textContent =
-        "Reply privately";
+    reply.textContent = "Reply privately";
 
     reply.onclick = () => {
-
         privateTo = fromId;
 
-        document
-            .getElementById("privateName")
-            .textContent = from;
+        $("privateName").textContent = from;
 
-        document
-            .getElementById("privateBar")
-            .style.display = "block";
+        $("privateBar").style.display =
+            "block";
 
-        message.placeholder =
+        messageInput.placeholder =
             "Private message to " + from;
 
-        message.focus();
+        messageInput.focus();
     };
 
     head.append(
@@ -1124,19 +1080,22 @@ function showMessage(
     const textElement =
         document.createElement("div");
 
-    textElement.className =
-        "msg-text";
+    textElement.className = "msg-text";
 
-    if (isPrivate) {
-        textElement.textContent =
-            "🔒 " + text;
-    } else {
-        textElement.textContent = text;
-    }
+    textElement.textContent =
+        isPrivate
+            ? "🔒 " + text
+            : text;
 
-    body.append(head, textElement);
+    body.append(
+        head,
+        textElement
+    );
 
-    div.append(avatar, body);
+    div.append(
+        avatar,
+        body
+    );
 
     messages.appendChild(div);
 
@@ -1144,93 +1103,12 @@ function showMessage(
         messages.scrollHeight;
 }
 
-function makePublic() {
-
-    privateTo = null;
-
-    document
-        .getElementById("privateBar")
-        .style.display = "none";
-
-    message.placeholder =
-        "Message #general";
-
-    message.focus();
-}
-
 /* =========================
    VOICE
 ========================= */
 
-async function startVoice(targetId) {
-
-    if (!targetId) {
-        alert("Double-click a user to call them.");
-        return;
-    }
-
-    if (targetId === myId) {
-        return;
-    }
-
-    if (activeCall) {
-        return;
-    }
-
-    try {
-
-        await getMicrophone();
-
-        activeCall = targetId;
-
-        showVoice(
-            getUserName(targetId),
-            "Calling..."
-        );
-
-        const peer =
-            createPeer(targetId);
-
-        const offer =
-            await peer.createOffer({
-                offerToReceiveAudio: true
-            });
-
-        await peer.setLocalDescription(offer);
-
-        ws.send(JSON.stringify({
-            type: "voice-offer",
-            to: targetId,
-            offer: peer.localDescription
-        }));
-
-    } catch (err) {
-
-        console.error(err);
-
-        alert(
-            "Microphone access failed. " +
-            "Check your browser microphone permission."
-        );
-
-        cleanupVoice(false);
-    }
-}
-
-async function getMicrophone() {
-
-    if (stream) {
-        return stream;
-    }
-
-    if (
-        !navigator.mediaDevices ||
-        !navigator.mediaDevices.getUserMedia
-    ) {
-        throw new Error(
-            "getUserMedia unavailable"
-        );
-    }
+async function getMic() {
+    if (stream) return stream;
 
     stream =
         await navigator.mediaDevices.getUserMedia({
@@ -1245,49 +1123,87 @@ async function getMicrophone() {
     return stream;
 }
 
-function createPeer(id) {
+async function callUser(id) {
+    if (activeCall) return;
 
+    if (id === myId) return;
+
+    try {
+        await getMic();
+
+        activeCall = id;
+
+        showVoice(
+            getUsername(id),
+            "Calling..."
+        );
+
+        const peer =
+            createPeer(id);
+
+        const offer =
+            await peer.createOffer();
+
+        await peer.setLocalDescription(
+            offer
+        );
+
+        send({
+            type: "voice-offer",
+            to: id,
+            offer: peer.localDescription
+        });
+
+    } catch (error) {
+        console.error(error);
+
+        alert(
+            "Microphone access failed."
+        );
+
+        endVoice(false);
+    }
+}
+
+function createPeer(id) {
     if (peers.has(id)) {
         return peers.get(id);
     }
 
     const peer =
-        new RTCPeerConnection(rtcConfig);
+        new RTCPeerConnection(
+            rtcConfig
+        );
 
     peers.set(id, peer);
 
     if (stream) {
-
         for (const track of stream.getTracks()) {
             peer.addTrack(track, stream);
         }
-
     }
 
     peer.onicecandidate = event => {
+        if (!event.candidate) return;
 
-        if (!event.candidate) {
-            return;
-        }
-
-        ws.send(JSON.stringify({
+        send({
             type: "voice-ice",
             to: id,
             candidate: event.candidate
-        }));
+        });
     };
 
     peer.ontrack = event => {
-
         let audio =
             document.getElementById(
                 "audio-" + id
             );
 
         if (!audio) {
-
             audio =
-                document.createElement("audio");
+                document.createElement(
+                    "audio"
+                );
 
             audio.id =
                 "audio-" + id;
@@ -1295,9 +1211,9 @@ function createPeer(id) {
             audio.autoplay = true;
             audio.playsInline = true;
 
-            document
-                .getElementById("audio")
-                .appendChild(audio);
+            $("audio").appendChild(
+                audio
+            );
         }
 
         audio.srcObject =
@@ -1306,105 +1222,75 @@ function createPeer(id) {
         audio.play().catch(() => {});
 
         showVoice(
-            getUserName(id),
+            getUsername(id),
             "Voice connected"
         );
     };
 
     peer.onconnectionstatechange = () => {
-
-        const state =
-            peer.connectionState;
-
         console.log(
-            "Voice connection:",
-            id,
-            state
+            "WebRTC:",
+            peer.connectionState
         );
 
         if (
-            state === "connected"
+            peer.connectionState ===
+            "connected"
         ) {
-
             showVoice(
-                getUserName(id),
+                getUsername(id),
                 "Voice connected"
             );
-
         }
 
         if (
-            state === "failed" ||
-            state === "closed"
+            peer.connectionState ===
+                "failed" ||
+            peer.connectionState ===
+                "disconnected" ||
+            peer.connectionState ===
+                "closed"
         ) {
-
             if (activeCall === id) {
-                cleanupVoice(false);
+                endVoice(false);
             }
-
-        }
-    };
-
-    peer.oniceconnectionstatechange = () => {
-
-        console.log(
-            "ICE:",
-            peer.iceConnectionState
-        );
-
-        if (
-            peer.iceConnectionState ===
-            "failed"
-        ) {
-
-            /*
-             * Try an ICE restart if possible.
-             */
-
-            peer.restartIce?.();
-
         }
     };
 
     return peer;
 }
 
-async function receiveOffer(d) {
+async function incomingOffer(data) {
+    if (activeCall) return;
 
-    if (activeCall) {
-        return;
+    incomingCall = data;
+
+    if ($("callerName")) {
+        $("callerName").textContent =
+            data.fromUsername ||
+            "Someone";
     }
 
-    incomingCall = d;
-
-    document
-        .getElementById("callerName")
-        .textContent =
-        d.fromUsername || "Someone";
-
-    document
-        .getElementById("callPopup")
-        .style.display = "block";
+    if ($("callPopup")) {
+        $("callPopup").style.display =
+            "block";
+    }
 }
 
 async function acceptCall() {
+    if (!incomingCall) return;
 
-    if (!incomingCall) {
-        return;
-    }
-
-    const call =
-        incomingCall;
+    const call = incomingCall;
 
     incomingCall = null;
 
-    document
-        .getElementById("callPopup")
-        .style.display = "none";
+    if ($("callPopup")) {
+        $("callPopup").style.display =
+            "none";
+    }
 
     try {
-
-        await getMicrophone();
+        await getMic();
 
         activeCall = call.from;
 
@@ -1425,196 +1311,165 @@ async function acceptCall() {
         const answer =
             await peer.createAnswer();
 
-        await peer.setLocalDescription(answer);
+        await peer.setLocalDescription(
+            answer
+        );
 
-        ws.send(JSON.stringify({
+        send({
             type: "voice-answer",
             to: call.from,
             answer: peer.localDescription
-        }));
+        });
 
-    } catch (err) {
-
-        console.error(err);
+    } catch (error) {
+        console.error(error);
 
         alert(
-            "Could not start your microphone."
+            "Could not access microphone."
         );
 
-        cleanupVoice(false);
+        endVoice(false);
     }
 }
 
 function declineCall() {
+    if (!incomingCall) return;
 
-    if (!incomingCall) {
-        return;
-    }
-
-    ws.send(JSON.stringify({
+    send({
         type: "voice-hangup",
         to: incomingCall.from
-    }));
+    });
 
     incomingCall = null;
 
-    document
-        .getElementById("callPopup")
-        .style.display = "none";
+    if ($("callPopup")) {
+        $("callPopup").style.display =
+            "none";
+    }
 }
 
-async function receiveAnswer(d) {
-
+async function receiveAnswer(data) {
     const peer =
-        peers.get(d.from);
+        peers.get(data.from);
 
-    if (!peer) {
-        return;
-    }
+    if (!peer) return;
 
     try {
-
         await peer.setRemoteDescription(
-            d.answer
+            data.answer
         );
 
-        await flushIce(d.from);
+        await flushIce(data.from);
 
-    } catch (err) {
-
+    } catch (error) {
         console.error(
             "Answer error:",
-            err
+            error
         );
     }
 }
 
-async function receiveIce(d) {
-
-    const peer =
-        peers.get(d.from);
+async function receiveIce(data) {
+    let peer =
+        peers.get(data.from);
 
     if (
         !peer ||
         !peer.remoteDescription
     ) {
-
-        if (
-            !iceQueue.has(d.from)
-        ) {
+        if (!iceQueue.has(data.from)) {
             iceQueue.set(
-                d.from,
+                data.from,
                 []
             );
         }
 
         iceQueue
-            .get(d.from)
-            .push(d.candidate);
+            .get(data.from)
+            .push(data.candidate);
 
         return;
     }
 
     try {
-
         await peer.addIceCandidate(
-            d.candidate
+            data.candidate
         );
-
-    } catch (err) {
-
+    } catch (error) {
         console.error(
-            "ICE candidate error:",
-            err
+            "ICE error:",
+            error
         );
     }
 }
 
 async function flushIce(id) {
-
     const peer =
         peers.get(id);
 
     const queue =
         iceQueue.get(id);
 
-    if (!peer || !queue) {
-        return;
-    }
+    if (!peer || !queue) return;
 
     for (const candidate of queue) {
-
         try {
-
             await peer.addIceCandidate(
                 candidate
             );
-
-        } catch (err) {
-
-            console.error(
-                "Queued ICE error:",
-                err
-            );
-        }
+        } catch {}
     }
 
     iceQueue.delete(id);
 }
 
 function toggleMute() {
+    if (!stream) return;
 
-    if (!stream) {
-        return;
+    muted = !muted;
+
+    for (
+        const track of
+        stream.getAudioTracks()
+    ) {
+        track.enabled = !muted;
     }
 
-    voiceMuted = !voiceMuted;
-
-    for (const track of stream.getAudioTracks()) {
-        track.enabled = !voiceMuted;
+    if ($("muteText")) {
+        $("muteText").textContent =
+            muted
+                ? "Unmute"
+                : "Mute";
     }
 
-    document
-        .getElementById("muteText")
-        .textContent =
-        voiceMuted
-            ? "Unmute"
-            : "Mute";
-
-    document
-        .getElementById("voiceStatus")
-        .textContent =
-        voiceMuted
-            ? "Microphone muted"
-            : "Voice connected";
+    if ($("voiceStatus")) {
+        $("voiceStatus").textContent =
+            muted
+                ? "Microphone muted"
+                : "Voice connected";
+    }
 }
 
 function hangup() {
-
     if (activeCall) {
-
-        ws.send(JSON.stringify({
+        send({
             type: "voice-hangup",
             to: activeCall
-        }));
-
+        });
     }
 
-    cleanupVoice(true);
+    endVoice(false);
 }
 
-function cleanupVoice(sendHangup) {
-
+function endVoice(sendHangup) {
     if (
         sendHangup &&
         activeCall
     ) {
-
-        ws.send(JSON.stringify({
+        send({
             type: "voice-hangup",
             to: activeCall
-        }));
-
+        });
     }
 
     for (const peer of peers.values()) {
@@ -1627,7 +1482,6 @@ function cleanupVoice(sendHangup) {
     iceQueue.clear();
 
     if (stream) {
-
         for (const track of stream.getTracks()) {
             track.stop();
         }
@@ -1636,23 +1490,26 @@ function cleanupVoice(sendHangup) {
     }
 
     document
-        .querySelectorAll("#audio audio")
-        .forEach(audio => audio.remove());
+        .querySelectorAll(
+            "#audio audio"
+        )
+        .forEach(a => a.remove());
 
     activeCall = null;
-    voiceMuted = false;
+    muted = false;
 
-    document
-        .getElementById("voicePanel")
-        .style.display = "none";
+    if ($("voicePanel")) {
+        $("voicePanel").style.display =
+            "none";
+    }
 
-    document
-        .getElementById("muteText")
-        .textContent = "Mute";
+    if ($("muteText")) {
+        $("muteText").textContent =
+            "Mute";
+    }
 }
 
 function removePeer(id) {
-
     const peer =
         peers.get(id);
 
@@ -1675,12 +1532,11 @@ function removePeer(id) {
     }
 
     if (activeCall === id) {
-        cleanupVoice(false);
+        endVoice(false);
     }
 }
 
-function getUserName(id) {
-
+function getUsername(id) {
     const user =
         users.get(id);
 
@@ -1690,18 +1546,16 @@ function getUserName(id) {
 }
 
 function showVoice(name, state) {
+    if (!$("voicePanel")) return;
 
-    document
-        .getElementById("voicePanel")
-        .style.display = "flex";
+    $("voicePanel").style.display =
+        "flex";
 
-    document
-        .getElementById("voiceName")
-        .textContent = name;
+    $("voiceName").textContent =
+        name;
 
-    document
-        .getElementById("voiceStatus")
-        .textContent = state;
+    $("voiceStatus").textContent =
+        state;
 }
 
 </script>
