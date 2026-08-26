@@ -708,48 +708,55 @@ ws.onmessage = async event => {
 
     }
 
-    /* GROUP VOICE */
+   /* GROUP VOICE */
 
-    if(data.type === "voice-join"){
+if(data.type === "voice-users"){
 
-        await voiceUserJoined(data);
+    await handleVoiceUsers(data);
 
-        return;
+    return;
 
-    }
+}
 
-    if(data.type === "voice-offer"){
+if(data.type === "voice-user-joined"){
 
-        await receiveOffer(data);
+    await handleVoiceUserJoined(data);
 
-        return;
+    return;
 
-    }
+}
 
-    if(data.type === "voice-answer"){
+if(data.type === "voice-offer"){
 
-        await receiveAnswer(data);
+    await receiveOffer(data);
 
-        return;
+    return;
 
-    }
+}
 
-    if(data.type === "voice-ice"){
+if(data.type === "voice-answer"){
 
-        await receiveIce(data);
+    await receiveAnswer(data);
 
-        return;
+    return;
 
-    }
+}
 
-    if(data.type === "voice-leave"){
+if(data.type === "voice-ice"){
 
-        removeVoicePeer(data.from);
+    await receiveIce(data);
 
-        return;
+    return;
 
-    }
+}
 
+if(data.type === "voice-user-left"){
+
+    removeVoicePeer(data.id);
+
+    return;
+
+}
     if(data.type === "user-left"){
 
         removeVoicePeer(data.id);
@@ -1085,60 +1092,63 @@ const peers = new Map();
 const iceQueue = new Map();
 
 const rtcConfig = {
-
-    iceServers:[
+    iceServers: [
         {
-            urls:"stun:stun.l.google.com:19302"
+            urls: "stun:stun.l.google.com:19302"
         },
         {
-            urls:"stun:stun1.l.google.com:19302"
+            urls: "stun:stun1.l.google.com:19302"
         }
     ]
-
 };
 
-async function getMic(){
+async function getMic() {
 
-    if(stream)return stream;
+    if (stream) return stream;
+
+    if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+    ) {
+        throw new Error(
+            "Microphone API unavailable"
+        );
+    }
 
     stream =
         await navigator.mediaDevices.getUserMedia({
-            audio:{
-                echoCancellation:true,
-                noiseSuppression:true,
-                autoGainControl:true
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
             },
-            video:false
+            video: false
         });
 
     return stream;
-
 }
 
-/* JOIN ROOM */
+/* =========================
+   JOIN / LEAVE
+========================= */
 
-async function toggleVoice(){
+async function toggleVoice() {
 
-    if(voiceOn){
-
+    if (voiceOn) {
         leaveVoice();
-
         return;
-
     }
 
-    try{
+    try {
 
         await getMic();
 
         voiceOn = true;
-
         muted = false;
 
         document.getElementById(
             "joinVoice"
-        ).textContent =
-            "🔴 Leave Voice";
+        ).textContent = "🔴 Leave Voice";
 
         document.getElementById(
             "voicePanel"
@@ -1146,61 +1156,88 @@ async function toggleVoice(){
 
         document.getElementById(
             "voiceName"
-        ).textContent =
-            "🎙️ Voice Room";
+        ).textContent = "🎙️ Voice Room";
 
         document.getElementById(
             "voiceStatus"
-        ).textContent =
-            "Joining...";
-
-        /* Tell server we joined */
+        ).textContent = "Joining...";
 
         send({
-            type:"voice-join"
+            type: "voice-join"
         });
 
-    }catch(error){
+    } catch (error) {
 
-        console.error(error);
-
-        alert(
-            "Microphone access failed. Please allow your microphone."
+        console.error(
+            "Microphone error:",
+            error
         );
 
+        alert(
+            "Microphone access failed. Please allow microphone access."
+        );
     }
-
 }
 
-/* SOMEONE JOINED */
+/* =========================
+   VOICE USERS
+========================= */
 
-async function voiceUserJoined(data){
+async function handleVoiceUsers(data) {
 
-    if(!voiceOn)return;
-
-    if(data.from === myId)return;
+    if (!voiceOn) return;
 
     /*
-     * Existing users create offers.
-     * New user receives them.
+     * Server gives the new user everyone
+     * already inside the voice room.
+     *
+     * Use deterministic IDs so only one side
+     * creates the offer.
      */
 
-    if(myId < data.from){
+    for (const user of data.users) {
 
-        await makeOffer(data.from);
+        if (!user || user.id === myId) {
+            continue;
+        }
 
+        if (myId < user.id) {
+            await makeOffer(user.id);
+        }
     }
 
+    updateVoiceStatus();
 }
 
-/* CREATE PEER */
+async function handleVoiceUserJoined(data) {
 
-function createPeer(id){
+    if (!voiceOn) return;
 
-    if(peers.has(id)){
+    const user = data.user;
 
+    if (!user || user.id === myId) {
+        return;
+    }
+
+    /*
+     * The existing user creates the offer.
+     */
+
+    if (myId < user.id) {
+        await makeOffer(user.id);
+    }
+
+    updateVoiceStatus();
+}
+
+/* =========================
+   CREATE PEER
+========================= */
+
+function createPeer(id) {
+
+    if (peers.has(id)) {
         return peers.get(id);
-
     }
 
     const peer =
@@ -1208,137 +1245,195 @@ function createPeer(id){
             rtcConfig
         );
 
-    peers.set(id,peer);
+    peers.set(id, peer);
 
-    if(stream){
+    /*
+     * Add our microphone.
+     */
 
-        for(
+    if (stream) {
+
+        for (
             const track of
-            stream.getTracks()
-        ){
+            stream.getAudioTracks()
+        ) {
 
             peer.addTrack(
                 track,
                 stream
             );
-
         }
-
     }
 
-    peer.onicecandidate =
-        event => {
+    /*
+     * ICE candidates
+     */
 
-            if(!event.candidate)return;
+    peer.onicecandidate = event => {
 
-            send({
-                type:"voice-ice",
-                to:id,
-                candidate:event.candidate
-            });
+        if (!event.candidate) {
+            return;
+        }
 
-        };
+        send({
+            type: "voice-ice",
+            to: id,
+            candidate: event.candidate
+        });
+    };
 
-    peer.ontrack =
-        event => {
+    /*
+     * RECEIVE AUDIO
+     */
 
-            let audio =
-                document.getElementById(
-                    "audio-" + id
+    peer.ontrack = event => {
+
+        let audio =
+            document.getElementById(
+                "audio-" + id
+            );
+
+        if (!audio) {
+
+            audio =
+                document.createElement(
+                    "audio"
                 );
 
-            if(!audio){
+            audio.id =
+                "audio-" + id;
 
-                audio =
-                    document.createElement(
-                        "audio"
-                    );
+            audio.autoplay = true;
+            audio.playsInline = true;
+            audio.controls = false;
 
-                audio.id =
-                    "audio-" + id;
+            document
+                .getElementById("audio")
+                .appendChild(audio);
+        }
 
-                audio.autoplay = true;
-
-                audio.playsInline = true;
-
-                document.getElementById(
-                    "audio"
-                ).appendChild(audio);
-
-            }
+        if (
+            event.streams &&
+            event.streams[0]
+        ) {
 
             audio.srcObject =
                 event.streams[0];
 
-            audio.play().catch(()=>{});
+            audio.play().catch(error => {
+                console.warn(
+                    "Audio autoplay blocked:",
+                    error
+                );
+            });
+        }
+
+        document.getElementById(
+            "voiceStatus"
+        ).textContent =
+            "Voice connected";
+    };
+
+    /*
+     * Connection state
+     */
+
+    peer.onconnectionstatechange = () => {
+
+        console.log(
+            "Voice peer",
+            id,
+            peer.connectionState
+        );
+
+        if (
+            peer.connectionState ===
+            "connected"
+        ) {
 
             document.getElementById(
                 "voiceStatus"
             ).textContent =
                 "Voice connected";
+        }
 
-        };
+        if (
+            peer.connectionState ===
+                "failed" ||
+            peer.connectionState ===
+                "closed"
+        ) {
 
-    peer.onconnectionstatechange =
-        () => {
-
-            if(
-                peer.connectionState ===
-                    "failed" ||
-                peer.connectionState ===
-                    "closed"
-            ){
-
-                removeVoicePeer(id);
-
-            }
-
-        };
+            removeVoicePeer(id);
+        }
+    };
 
     return peer;
-
 }
 
-/* OFFER */
+/* =========================
+   MAKE OFFER
+========================= */
 
-async function makeOffer(id){
+async function makeOffer(id) {
 
-    if(!voiceOn)return;
+    if (!voiceOn) return;
 
-    const peer =
-        createPeer(id);
+    if (peers.has(id)) {
+        return;
+    }
 
-    const offer =
-        await peer.createOffer();
+    try {
 
-    await peer.setLocalDescription(
-        offer
-    );
+        const peer =
+            createPeer(id);
 
-    send({
-        type:"voice-offer",
-        to:id,
-        offer:peer.localDescription
-    });
+        const offer =
+            await peer.createOffer();
 
-}
-
-/* RECEIVE OFFER */
-
-async function receiveOffer(data){
-
-    if(!voiceOn)return;
-
-    const peer =
-        createPeer(data.from);
-
-    try{
-
-        await peer.setRemoteDescription(
-            data.offer
+        await peer.setLocalDescription(
+            offer
         );
 
-        await flushIce(data.from);
+        send({
+            type: "voice-offer",
+            to: id,
+            offer: peer.localDescription
+        });
+
+    } catch (error) {
+
+        console.error(
+            "Offer error:",
+            error
+        );
+
+        removeVoicePeer(id);
+    }
+}
+
+/* =========================
+   RECEIVE OFFER
+========================= */
+
+async function receiveOffer(data) {
+
+    if (!voiceOn) return;
+
+    try {
+
+        const peer =
+            createPeer(data.from);
+
+        await peer.setRemoteDescription(
+            new RTCSessionDescription(
+                data.offer
+            )
+        );
+
+        await flushIce(
+            data.from
+        );
 
         const answer =
             await peer.createAnswer();
@@ -1348,69 +1443,83 @@ async function receiveOffer(data){
         );
 
         send({
-            type:"voice-answer",
-            to:data.from,
-            answer:peer.localDescription
+            type: "voice-answer",
+            to: data.from,
+            answer: peer.localDescription
         });
 
-    }catch(error){
+    } catch (error) {
 
         console.error(
-            "Offer error:",
+            "Offer receive error:",
             error
         );
-
     }
-
 }
 
-/* RECEIVE ANSWER */
+/* =========================
+   RECEIVE ANSWER
+========================= */
 
-async function receiveAnswer(data){
+async function receiveAnswer(data) {
 
     const peer =
         peers.get(data.from);
 
-    if(!peer)return;
+    if (!peer) {
+        console.warn(
+            "No peer for answer:",
+            data.from
+        );
+        return;
+    }
 
-    try{
+    try {
 
         await peer.setRemoteDescription(
-            data.answer
+            new RTCSessionDescription(
+                data.answer
+            )
         );
 
-        await flushIce(data.from);
+        await flushIce(
+            data.from
+        );
 
-    }catch(error){
+    } catch (error) {
 
         console.error(
             "Answer error:",
             error
         );
-
     }
-
 }
 
-/* ICE */
+/* =========================
+   ICE
+========================= */
 
-async function receiveIce(data){
+async function receiveIce(data) {
 
     let peer =
         peers.get(data.from);
 
-    if(
+    /*
+     * ICE can arrive before the offer.
+     * Queue it until remoteDescription exists.
+     */
+
+    if (
         !peer ||
         !peer.remoteDescription
-    ){
+    ) {
 
-        if(!iceQueue.has(data.from)){
+        if (!iceQueue.has(data.from)) {
 
             iceQueue.set(
                 data.from,
                 []
             );
-
         }
 
         iceQueue
@@ -1418,29 +1527,30 @@ async function receiveIce(data){
             .push(data.candidate);
 
         return;
-
     }
 
-    try{
+    try {
 
         await peer.addIceCandidate(
-            data.candidate
+            new RTCIceCandidate(
+                data.candidate
+            )
         );
 
-    }catch(error){
+    } catch (error) {
 
         console.error(
             "ICE error:",
             error
         );
-
     }
-
 }
 
-/* FLUSH ICE */
+/* =========================
+   FLUSH ICE
+========================= */
 
-async function flushIce(id){
+async function flushIce(id) {
 
     const peer =
         peers.get(id);
@@ -1448,41 +1558,50 @@ async function flushIce(id){
     const queue =
         iceQueue.get(id);
 
-    if(!peer || !queue)return;
+    if (!peer || !queue) {
+        return;
+    }
 
-    for(
+    for (
         const candidate of queue
-    ){
+    ) {
 
-        try{
+        try {
 
             await peer.addIceCandidate(
-                candidate
+                new RTCIceCandidate(
+                    candidate
+                )
             );
 
-        }catch{}
+        } catch (error) {
 
+            console.warn(
+                "Queued ICE error:",
+                error
+            );
+        }
     }
 
     iceQueue.delete(id);
-
 }
 
-/* MUTE */
+/* =========================
+   MUTE
+========================= */
 
-function toggleMute(){
+function toggleMute() {
 
-    if(!stream)return;
+    if (!stream) return;
 
     muted = !muted;
 
-    for(
+    for (
         const track of
         stream.getAudioTracks()
-    ){
+    ) {
 
         track.enabled = !muted;
-
     }
 
     document.getElementById(
@@ -1498,49 +1617,46 @@ function toggleMute(){
         muted
             ? "Microphone muted"
             : "Voice connected";
-
 }
 
-/* LEAVE */
+/* =========================
+   LEAVE
+========================= */
 
-function leaveVoice(){
+function leaveVoice() {
 
-    if(!voiceOn)return;
+    if (!voiceOn) return;
 
     send({
-        type:"voice-leave"
+        type: "voice-leave"
     });
 
     voiceOn = false;
 
-    for(
+    for (
         const peer of
         peers.values()
-    ){
+    ) {
 
-        try{
+        try {
             peer.close();
-        }catch{}
-
+        } catch {}
     }
 
     peers.clear();
-
     iceQueue.clear();
 
-    if(stream){
+    if (stream) {
 
-        for(
+        for (
             const track of
             stream.getTracks()
-        ){
+        ) {
 
             track.stop();
-
         }
 
         stream = null;
-
     }
 
     document
@@ -1567,26 +1683,25 @@ function leaveVoice(){
         "🔇 Mute";
 
     muted = false;
-
 }
 
-/* REMOVE ONE PERSON */
+/* =========================
+   REMOVE PEER
+========================= */
 
-function removeVoicePeer(id){
+function removeVoicePeer(id) {
 
     const peer =
         peers.get(id);
 
-    if(peer){
+    if (peer) {
 
-        try{
+        try {
             peer.close();
-        }catch{}
-
+        } catch {}
     }
 
     peers.delete(id);
-
     iceQueue.delete(id);
 
     const audio =
@@ -1594,12 +1709,30 @@ function removeVoicePeer(id){
             "audio-" + id
         );
 
-    if(audio){
-
+    if (audio) {
         audio.remove();
-
     }
 
+    updateVoiceStatus();
+}
+
+/* =========================
+   STATUS
+========================= */
+
+function updateVoiceStatus() {
+
+    if (!voiceOn) return;
+
+    const count =
+        peers.size;
+
+    document.getElementById(
+        "voiceStatus"
+    ).textContent =
+        count > 0
+            ? "Voice connected"
+            : "Waiting for others...";
 }
 
 </script>
