@@ -78,9 +78,42 @@ function findUser(id) {
     return users.get(String(id));
 }
 
+/* =========================
+   VOICE ROOM
+========================= */
+
+function voiceUsers() {
+    const list = [];
+
+    for (const client of wss.clients) {
+        if (client.inVoice) {
+            list.push({
+                id: client.userId,
+                username: client.username
+            });
+        }
+    }
+
+    return list;
+}
+
+function sendVoiceUsers() {
+    const list = voiceUsers();
+
+    for (const client of wss.clients) {
+        if (client.inVoice) {
+            send(client, {
+                type: "voice-users",
+                users: list
+            });
+        }
+    }
+}
+
 wss.on("connection", (ws) => {
     ws.userId = crypto.randomUUID();
     ws.username = "Anonymous";
+    ws.inVoice = false;
 
     users.set(ws.userId, ws);
 
@@ -102,9 +135,7 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        /*
-         * USERNAME
-         */
+        /* USERNAME */
 
         if (message.type === "username") {
             let name = String(
@@ -121,12 +152,15 @@ wss.on("connection", (ws) => {
             ws.username = name;
 
             sendUserList();
+
+            if (ws.inVoice) {
+                sendVoiceUsers();
+            }
+
             return;
         }
 
-        /*
-         * PUBLIC CHAT
-         */
+        /* PUBLIC CHAT */
 
         if (message.type === "public") {
             const text = String(
@@ -148,9 +182,7 @@ wss.on("connection", (ws) => {
             return;
         }
 
-        /*
-         * PRIVATE CHAT
-         */
+        /* PRIVATE CHAT */
 
         if (message.type === "private") {
             const text = String(
@@ -179,26 +211,79 @@ wss.on("connection", (ws) => {
                 time: Date.now()
             };
 
-            send(ws, data);
-            send(target, data);
+            /* Don't send twice when messaging yourself */
+            if (target === ws) {
+                send(ws, data);
+            } else {
+                send(ws, data);
+                send(target, data);
+            }
 
             return;
         }
 
-        /*
-         * VOICE SIGNALING
-         *
-         * voice-offer
-         * voice-answer
-         * voice-ice
-         * voice-hangup
-         */
+        /* =========================
+           JOIN VOICE
+        ========================= */
+
+        if (message.type === "voice-join") {
+            if (ws.inVoice) return;
+
+            const existingUsers = voiceUsers();
+
+            ws.inVoice = true;
+
+            /*
+             * Tell the new person who is already
+             * inside the voice room.
+             */
+            send(ws, {
+                type: "voice-users",
+                users: existingUsers
+            });
+
+            /*
+             * Tell everyone already inside that
+             * this person joined.
+             */
+            for (const client of wss.clients) {
+                if (
+                    client !== ws &&
+                    client.inVoice
+                ) {
+                    send(client, {
+                        type: "voice-user-joined",
+                        user: makeUser(ws)
+                    });
+                }
+            }
+
+            console.log(
+                `${ws.username} joined voice`
+            );
+
+            sendVoiceUsers();
+
+            return;
+        }
+
+        /* =========================
+           LEAVE VOICE
+        ========================= */
+
+        if (message.type === "voice-leave") {
+            leaveVoice(ws);
+            return;
+        }
+
+        /* =========================
+           WEBRTC SIGNALING
+        ========================= */
 
         const voiceTypes = [
             "voice-offer",
             "voice-answer",
-            "voice-ice",
-            "voice-hangup"
+            "voice-ice"
         ];
 
         if (voiceTypes.includes(message.type)) {
@@ -210,19 +295,23 @@ wss.on("connection", (ws) => {
 
             if (!target) return;
 
-            const packet = {
+            if (!ws.inVoice || !target.inVoice) {
+                return;
+            }
+
+            send(target, {
                 ...message,
                 from: ws.userId,
                 fromUsername: ws.username
-            };
-
-            send(target, packet);
+            });
 
             return;
         }
     });
 
     ws.on("close", () => {
+        leaveVoice(ws);
+
         users.delete(ws.userId);
 
         broadcast({
@@ -232,14 +321,42 @@ wss.on("connection", (ws) => {
 
         sendUserList();
 
-        console.log(`${ws.username} disconnected`);
+        console.log(
+            `${ws.username} disconnected`
+        );
     });
 
     ws.on("error", (err) => {
-        console.error("WebSocket error:", err.message);
+        console.error(
+            "WebSocket error:",
+            err.message
+        );
     });
 });
 
+function leaveVoice(ws) {
+    if (!ws.inVoice) return;
+
+    ws.inVoice = false;
+
+    for (const client of wss.clients) {
+        if (client.inVoice) {
+            send(client, {
+                type: "voice-user-left",
+                id: ws.userId
+            });
+        }
+    }
+
+    sendVoiceUsers();
+
+    console.log(
+        `${ws.username} left voice`
+    );
+}
+
 server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Chat server running on port ${PORT}`);
+    console.log(
+        `Chat server running on port ${PORT}`
+    );
 });
